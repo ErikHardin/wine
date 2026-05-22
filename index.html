@@ -1,0 +1,1549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>ECH Wine Cellar</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;0,800;1,400;1,600&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&display=swap" rel="stylesheet" />
+
+<style>
+  /* ── Variables ── */
+  :root {
+    --cream:      #f5ede0;
+    --cream-dark: #ede0cc;
+    --parchment:  #e8d5b7;
+    --gold:       #b8860b;
+    --gold-light: #d4a843;
+    --gold-pale:  #f0d080;
+    --brown:      #6b3d1e;
+    --brown-mid:  #8b5a2b;
+    --brown-light:#a87848;
+    --brown-pale: #c8a070;
+    --ink:        #2c1a0e;
+    --ink-mid:    #4a2e18;
+    --ink-light:  #7a5030;
+    --red-wine:   #8b2635;
+    --white-wine: #c8a830;
+    --rose-wine:  #c06070;
+    --spark-wine: #5090b0;
+    --surface:    rgba(255,255,255,0.55);
+    --surface-2:  rgba(255,255,255,0.35);
+    --surface-3:  rgba(255,255,255,0.2);
+    --border:     rgba(184,134,11,0.2);
+    --border-2:   rgba(184,134,11,0.12);
+    --shadow:     0 2px 16px rgba(107,61,30,0.12);
+    --shadow-lg:  0 8px 32px rgba(107,61,30,0.18);
+    --radius:     14px;
+    --radius-sm:  9px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    font-family: 'Crimson Pro', Georgia, serif;
+    background: #f0e6d3;
+    color: var(--ink);
+    min-height: 100vh;
+    max-width: 480px;
+    margin: 0 auto;
+    position: relative;
+    overflow-x: hidden;
+  }
+
+  /* Parchment texture overlay */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background-image:
+      url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+    background-size: 180px;
+    opacity: 1;
+  }
+
+  /* Warm gradient background */
+  body::after {
+    content: '';
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background:
+      radial-gradient(ellipse at 15% 0%, rgba(212,168,67,0.15) 0%, transparent 55%),
+      radial-gradient(ellipse at 85% 100%, rgba(139,86,43,0.1) 0%, transparent 50%);
+  }
+
+  #app { position: relative; z-index: 1; min-height: 100vh; }
+
+  /* ── Typography ── */
+  .serif { font-family: 'Cormorant Garamond', Georgia, serif; }
+
+  /* ── Buttons ── */
+  button { cursor: pointer; font-family: inherit; border: none; background: none; }
+
+  .btn-primary {
+    width: 100%; padding: 14px;
+    background: linear-gradient(135deg, var(--gold) 0%, #8b6010 100%);
+    color: var(--cream); border-radius: var(--radius-sm); border: none;
+    font-family: 'Cormorant Garamond', serif; font-size: 16px; font-weight: 700;
+    letter-spacing: 0.5px; box-shadow: 0 4px 18px rgba(184,134,11,0.35);
+    transition: all 0.2s; transform: translateY(0);
+  }
+  .btn-primary:active { transform: translateY(1px); box-shadow: 0 2px 10px rgba(184,134,11,0.3); }
+
+  .btn-ghost {
+    width: 100%; padding: 13px;
+    background: var(--surface-2); border-radius: var(--radius-sm);
+    border: 1px solid var(--border); color: var(--brown-mid);
+    font-size: 14px; transition: all 0.2s;
+  }
+
+  .btn-danger {
+    width: 100%; padding: 13px;
+    background: rgba(139,38,53,0.08); border: 1px solid rgba(139,38,53,0.2);
+    border-radius: var(--radius-sm); color: var(--red-wine);
+    font-family: 'Cormorant Garamond', serif; font-size: 15px; font-weight: 700;
+  }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 16px;
+    margin-bottom: 10px;
+  }
+
+  /* ── Inputs ── */
+  input, select, textarea {
+    width: 100%; font-family: 'Crimson Pro', serif;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); color: var(--ink);
+    padding: 11px 13px; font-size: 15px; outline: none;
+    transition: border-color 0.2s;
+    -webkit-appearance: none;
+  }
+  input:focus, select:focus, textarea:focus {
+    border-color: var(--gold-light);
+    background: rgba(255,255,255,0.75);
+  }
+  input::placeholder, textarea::placeholder { color: var(--brown-pale); }
+  textarea { resize: none; min-height: 80px; line-height: 1.6; }
+
+  .input-error { border-color: var(--red-wine) !important; }
+
+  .field-label {
+    color: var(--brown-mid); font-size: 10px; letter-spacing: 2px;
+    text-transform: uppercase; margin-bottom: 6px; display: block;
+    font-family: 'Cormorant Garamond', serif;
+  }
+
+  /* ── Tags / Pills ── */
+  .pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 10px; border-radius: 20px; font-size: 12px;
+    background: var(--surface-2); border: 1px solid var(--border);
+    color: var(--brown-mid);
+  }
+
+  /* ── Header ── */
+  .app-header {
+    padding: 36px 20px 16px;
+    background: linear-gradient(180deg, rgba(245,237,224,0.95) 0%, rgba(245,237,224,0) 100%);
+    position: sticky; top: 0; z-index: 50;
+  }
+  .app-header h1 {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 28px; font-weight: 800; color: var(--ink);
+    line-height: 1.1;
+  }
+  .app-header h1 span { color: var(--gold); }
+  .header-divider {
+    height: 1px; margin-top: 14px;
+    background: linear-gradient(90deg, var(--gold) 0%, transparent 70%);
+    opacity: 0.4;
+  }
+
+  /* ── Tab bar ── */
+  .tab-bar {
+    display: flex; gap: 3px;
+    background: rgba(107,61,30,0.08); border-radius: 12px;
+    padding: 4px; margin-bottom: 20px;
+  }
+  .tab-btn {
+    flex: 1; padding: 9px 2px; border-radius: 9px;
+    font-family: 'Cormorant Garamond', serif; font-size: 10px;
+    font-weight: 700; letter-spacing: 0.3px; white-space: nowrap;
+    color: var(--brown-pale); border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+  }
+  .tab-btn.active {
+    background: rgba(184,134,11,0.15);
+    color: var(--gold); border-bottom: 2px solid var(--gold);
+  }
+
+  /* ── Slot grid ── */
+  .slot {
+    aspect-ratio: 1; border-radius: 6px; display: flex;
+    flex-direction: column; align-items: center; justify-content: center;
+    cursor: pointer; transition: all 0.15s;
+    border: 1px solid var(--border-2);
+    background: var(--surface-3);
+    font-family: monospace; font-weight: 700; font-size: 7px;
+    color: var(--brown-pale);
+  }
+  .slot.occupied {
+    background: rgba(184,134,11,0.12);
+    border-color: rgba(184,134,11,0.4);
+    color: var(--gold);
+  }
+  .slot:active { transform: scale(0.95); }
+
+  /* ── Color dots ── */
+  .color-dot {
+    width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0;
+  }
+
+  /* ── Drink window bar ── */
+  .drink-bar {
+    height: 5px; border-radius: 3px;
+    background: rgba(107,61,30,0.12);
+    overflow: hidden;
+  }
+  .drink-bar-fill { height: 100%; border-radius: 3px; transition: width 0.6s; }
+
+  /* ── Loading spinner ── */
+  .spinner {
+    width: 20px; height: 20px; border-radius: 50%;
+    border: 2px solid rgba(184,134,11,0.2);
+    border-top-color: var(--gold);
+    animation: spin 0.8s linear infinite; flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Modal sheet ── */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(44,26,14,0.6);
+    z-index: 100; display: flex; flex-direction: column;
+    justify-content: flex-end; backdrop-filter: blur(2px);
+  }
+  .modal-sheet {
+    background: var(--cream); border-radius: 22px 22px 0 0;
+    padding: 22px 20px 44px; max-height: 92vh; overflow-y: auto;
+    box-shadow: 0 -8px 40px rgba(107,61,30,0.2);
+  }
+  .modal-handle {
+    width: 36px; height: 4px; background: var(--parchment);
+    border-radius: 2px; margin: 0 auto 20px;
+  }
+
+  /* ── Score badge ── */
+  .score-badge {
+    font-family: monospace; font-weight: 800; font-size: 12px;
+    padding: 3px 9px; border-radius: 8px;
+  }
+
+  /* ── PIN screen ── */
+  #pin-screen {
+    position: fixed; inset: 0; z-index: 200;
+    background: linear-gradient(160deg, #f5ede0 0%, #ebe0ca 60%, #f0e6d3 100%);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; padding: 40px 30px;
+  }
+  .pin-dots { display: flex; gap: 16px; margin: 32px 0; }
+  .pin-dot {
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 2px solid var(--gold); background: transparent;
+    transition: all 0.2s;
+  }
+  .pin-dot.filled { background: var(--gold); transform: scale(1.1); }
+  .pin-dot.error { border-color: var(--red-wine); background: rgba(139,38,53,0.15); }
+  .pin-keypad {
+    display: grid; grid-template-columns: repeat(3, 72px);
+    gap: 12px; margin-top: 8px;
+  }
+  .pin-key {
+    height: 72px; border-radius: 50%;
+    background: var(--surface); border: 1px solid var(--border);
+    font-family: 'Cormorant Garamond', serif; font-size: 24px;
+    font-weight: 700; color: var(--ink); box-shadow: var(--shadow);
+    transition: all 0.15s; display: flex; align-items: center; justify-content: center;
+  }
+  .pin-key:active { transform: scale(0.93); background: var(--parchment); }
+  .pin-key.delete { font-size: 18px; color: var(--brown-mid); }
+  .pin-key.empty { background: none; border: none; box-shadow: none; pointer-events: none; }
+
+  /* ── Misc ── */
+  .section-label {
+    color: var(--brown-mid); font-size: 10px; letter-spacing: 2.5px;
+    text-transform: uppercase; margin-bottom: 8px;
+    font-family: 'Cormorant Garamond', serif;
+  }
+  .empty-state { text-align: center; padding: 60px 0; }
+  .empty-state .icon { font-size: 44px; margin-bottom: 14px; }
+  .empty-state .title {
+    font-family: 'Cormorant Garamond', serif; font-size: 20px;
+    color: var(--brown-mid); margin-bottom: 6px;
+  }
+  .empty-state .sub { font-size: 13px; color: var(--brown-pale); line-height: 1.6; }
+  .divider { height: 1px; background: var(--border-2); margin: 12px 0; }
+
+  .badge-count {
+    background: rgba(184,134,11,0.15); color: var(--gold);
+    font-size: 10px; padding: 1px 6px; border-radius: 10px;
+    font-family: monospace; font-weight: 700;
+  }
+
+  /* Scroll container */
+  .scroll-content { padding: 0 20px 100px; }
+
+  /* iOS safe area */
+  .modal-sheet { padding-bottom: max(44px, env(safe-area-inset-bottom)); }
+</style>
+</head>
+<body>
+
+<!-- ── PIN Screen ────────────────────────────────────────────────── -->
+<div id="pin-screen">
+  <div style="text-align:center">
+    <div style="font-size:11px;letter-spacing:4px;text-transform:uppercase;color:var(--brown-pale);margin-bottom:8px;font-family:'Cormorant Garamond',serif">ECH Wine</div>
+    <h1 style="font-family:'Cormorant Garamond',serif;font-size:32px;font-weight:800;color:var(--ink)">Cellar <span style="color:var(--gold)">Manager</span></h1>
+    <p id="pin-subtitle" style="color:var(--brown-mid);font-size:15px;margin-top:10px">Enter your PIN</p>
+  </div>
+  <div class="pin-dots" id="pin-dots">
+    <div class="pin-dot" id="d0"></div>
+    <div class="pin-dot" id="d1"></div>
+    <div class="pin-dot" id="d2"></div>
+    <div class="pin-dot" id="d3"></div>
+  </div>
+  <p id="pin-error" style="color:var(--red-wine);font-size:13px;height:18px;text-align:center;margin-bottom:12px"></p>
+  <div class="pin-keypad" id="pin-keypad">
+    <button class="pin-key" onclick="pinPress(1)">1</button>
+    <button class="pin-key" onclick="pinPress(2)">2</button>
+    <button class="pin-key" onclick="pinPress(3)">3</button>
+    <button class="pin-key" onclick="pinPress(4)">4</button>
+    <button class="pin-key" onclick="pinPress(5)">5</button>
+    <button class="pin-key" onclick="pinPress(6)">6</button>
+    <button class="pin-key" onclick="pinPress(7)">7</button>
+    <button class="pin-key" onclick="pinPress(8)">8</button>
+    <button class="pin-key" onclick="pinPress(9)">9</button>
+    <button class="pin-key empty"></button>
+    <button class="pin-key" onclick="pinPress(0)">0</button>
+    <button class="pin-key delete" onclick="pinDelete()">⌫</button>
+  </div>
+</div>
+
+<!-- ── Main App ──────────────────────────────────────────────────── -->
+<div id="app" style="display:none">
+
+  <!-- Header -->
+  <div class="app-header">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end">
+      <div>
+        <div style="font-size:10px;letter-spacing:4px;text-transform:uppercase;color:var(--brown-pale);margin-bottom:4px;font-family:'Cormorant Garamond',serif">ECH Wine</div>
+        <h1>Cellar <span>Manager</span></h1>
+      </div>
+      <div style="display:flex;gap:8px" id="header-badges"></div>
+    </div>
+    <div class="header-divider"></div>
+  </div>
+
+  <!-- Tab content -->
+  <div class="scroll-content">
+    <div class="tab-bar">
+      <button class="tab-btn active" onclick="switchTab('trip')" id="tab-trip">🧳 Trip</button>
+      <button class="tab-btn" onclick="switchTab('cellar')" id="tab-cellar">🗂 Cellar</button>
+      <button class="tab-btn" onclick="switchTab('find')" id="tab-find">🔍 Find</button>
+      <button class="tab-btn" onclick="switchTab('consumed')" id="tab-consumed">🥂 Done</button>
+    </div>
+    <div id="tab-content"></div>
+  </div>
+</div>
+
+<!-- ── Modals (injected dynamically) ────────────────────────────── -->
+<div id="modal-root"></div>
+
+<!-- ── Firebase SDK ─────────────────────────────────────────────── -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getDatabase, ref, set, get, onValue, remove, update }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+// ── CONFIG — replace with your Firebase project values ──────────
+const firebaseConfig = {
+  apiKey:            "AIzaSyCk_aDm7hI_lZcbAhC__SN-JTtya0AymFM",
+  authDomain:        "wine-5ab2d.firebaseapp.com",
+  databaseURL:       "https://wine-5ab2d-default-rtdb.firebaseio.com",
+  projectId:         "wine-5ab2d",
+  storageBucket:     "wine-5ab2d.firebasestorage.app",
+  messagingSenderId: "986727777631",
+  appId:             "1:986727777631:web:2cba6b32c16fd1c5dde2ea",
+};
+
+// ── Cloudflare Worker URL ────────────────────────────────────────
+const WORKER_URL = "https://wine.erikchardin.workers.dev";
+
+// ── Firebase init ────────────────────────────────────────────────
+const app  = initializeApp(firebaseConfig);
+const db   = getDatabase(app);
+
+// ── State ────────────────────────────────────────────────────────
+let wines      = {};   // { id: wineObj }
+let slots      = {};   // { fridge:{}, winefridge:{}, closet:{} }
+let consumed   = {};   // { id: consumedObj }
+let appPin     = null; // stored PIN
+let currentTab = "trip";
+let nextId     = Date.now();
+
+// ── Locations ────────────────────────────────────────────────────
+const LOCATIONS = (() => {
+  const fridgeSlots = [];
+  for (let r=1;r<=2;r++) for (let c=1;c<=7;c++) fridgeSlots.push(`R${r}-${c}`);
+
+  const wfSlots = [];
+  for (const s of ["A","B","C","D","E"]) for (let i=1;i<=7;i++) wfSlots.push(`${s}${i}`);
+  for (const s of ["F","G"])             for (let i=1;i<=5;i++) wfSlots.push(`${s}${i}`);
+
+  const closetSlots = [];
+  const sections = [{id:"S1",start:1,rows:2},{id:"S2",start:17,rows:3},{id:"S3",start:41,rows:3}];
+  for (const sec of sections)
+    for (let r=1;r<=sec.rows;r++)
+      for (let c=1;c<=8;c++)
+        closetSlots.push(`${sec.id}-R${r}-${String(sec.start+(r-1)*8+(c-1)).padStart(2,"0")}`);
+
+  return {
+    fridge:     {id:"fridge",    name:"Main Fridge",    icon:"🧊",color:"#4a9aba",slots:fridgeSlots,
+                 grid:{sections:["R1","R2"],cols:7,sectionCols:null}},
+    winefridge: {id:"winefridge",name:"Wine Fridge",    icon:"🍷",color:"#b8860b",slots:wfSlots,
+                 grid:{sections:["A","B","C","D","E","F","G"],cols:7,
+                       sectionCols:{A:7,B:7,C:7,D:7,E:7,F:5,G:5}}},
+    closet:     {id:"closet",    name:"Closet Storage", icon:"🗄️",color:"#8b6010",slots:closetSlots,
+                 grid:{sections:[
+                   {id:"S1",rows:2,label:"Section 1 · Slots 1–16"},
+                   {id:"S2",rows:3,label:"Section 2 · Slots 17–40"},
+                   {id:"S3",rows:3,label:"Section 3 · Slots 41–64"},
+                 ],cols:8}},
+  };
+})();
+
+const COLOR_OPTIONS   = ["Red","White","Rosé","Sparkling"];
+const VARIETAL_OPTIONS= ["Cabernet Sauvignon","Merlot","Chardonnay","Pinot Noir","Sauvignon Blanc",
+                          "Bordeaux Blend","Riesling","Syrah/Shiraz","Zinfandel","Other"];
+const FOOD_PAIRINGS   = [
+  {id:"steak",label:"Steak",emoji:"🥩"},
+  {id:"chicken",label:"Chicken",emoji:"🍗"},
+  {id:"fish",label:"Fish",emoji:"🐟"},
+  {id:"salmon",label:"Salmon",emoji:"🐠"},
+  {id:"pork",label:"Pork",emoji:"🥓"},
+  {id:"lamb",label:"Lamb",emoji:"🍖"},
+  {id:"pasta",label:"Pasta",emoji:"🍝"},
+  {id:"pizza",label:"Pizza",emoji:"🍕"},
+  {id:"seafood",label:"Seafood",emoji:"🦞"},
+  {id:"cheese",label:"Cheese",emoji:"🧀"},
+  {id:"mushroom",label:"Mushrooms",emoji:"🍄"},
+  {id:"vegetarian",label:"Vegetarian",emoji:"🥗"},
+  {id:"spicy",label:"Spicy",emoji:"🌶️"},
+  {id:"dessert",label:"Dessert",emoji:"🍰"},
+];
+const FOOD_ALIASES = {
+  steak:["steak","beef","ribeye","filet","red meat","grilled meat"],
+  chicken:["chicken","poultry","roast chicken"],
+  fish:["fish","halibut","cod","tilapia","sole","tuna"],
+  salmon:["salmon","trout"],
+  pork:["pork","prosciutto","bacon","ham","sausage","charcuterie"],
+  lamb:["lamb","rack of lamb"],
+  pasta:["pasta","risotto","linguine","spaghetti","carbonara"],
+  pizza:["pizza","flatbread"],
+  seafood:["seafood","lobster","shrimp","crab","oyster","scallop","clam"],
+  cheese:["cheese","brie","cheddar","gouda","parmesan","charcuterie"],
+  mushroom:["mushroom","truffle","earthy"],
+  vegetarian:["vegetable","salad","grilled veg","ratatouille","lentil"],
+  spicy:["spicy","thai","indian","curry","jalapeño","pepper"],
+  dessert:["dessert","chocolate","cake","tart","sweet"],
+};
+
+// ── Helpers ──────────────────────────────────────────────────────
+const currentYear = new Date().getFullYear();
+
+function drinkStatus(w) {
+  if (!w.drinkFrom || !w.drinkTo) return null;
+  if (currentYear < w.drinkFrom) return {label:`Open from ${w.drinkFrom}`,color:"#4a9aba",emoji:"⏳"};
+  if (currentYear > w.drinkTo)   return {label:"Past peak",color:"#8b2635",emoji:"⚠️"};
+  const pct = Math.round(((currentYear-w.drinkFrom)/(w.drinkTo-w.drinkFrom))*100);
+  return {label:`Peak now · ${w.drinkFrom}–${w.drinkTo}`,color:"#5a8a3a",emoji:"✅",pct};
+}
+
+function scoreColor(s) {
+  if (!s) return "var(--brown-pale)";
+  if (s>=95) return "#b8860b";
+  if (s>=90) return "#8b6010";
+  return "var(--brown-mid)";
+}
+
+function colorDot(c) {
+  return {Red:"#8b2635",White:"#b8960b",Rosé:"#c06070",Sparkling:"#4a80a0"}[c]||"var(--brown-mid)";
+}
+
+function matchesFood(wine, foodId) {
+  if (!wine.pairings?.length) return false;
+  const txt = wine.pairings.join(" ").toLowerCase();
+  return (FOOD_ALIASES[foodId]||[foodId]).some(a=>txt.includes(a));
+}
+
+function findPlacement(wineId) {
+  for (const locId of Object.keys(LOCATIONS))
+    for (const [slot,wid] of Object.entries(slots[locId]||{}))
+      if (wid===wineId) return {locId,slot};
+  return null;
+}
+
+function storedWineIds() {
+  const ids=new Set();
+  for (const locId of Object.keys(LOCATIONS))
+    for (const [,wid] of Object.entries(slots[locId]||{}))
+      if (wid) ids.add(wid);
+  return ids;
+}
+
+function el(id){ return document.getElementById(id); }
+function ce(tag,props={},children=[]){
+  const e=document.createElement(tag);
+  Object.entries(props).forEach(([k,v])=>{
+    if(k==="style") Object.assign(e.style,v);
+    else if(k==="class") e.className=v;
+    else if(k.startsWith("on")) e.addEventListener(k.slice(2).toLowerCase(),v);
+    else e.setAttribute(k,v);
+  });
+  children.forEach(c=>{ if(c!=null) e.appendChild(typeof c==="string"?document.createTextNode(c):c); });
+  return e;
+}
+function html(h){ const d=document.createElement("div"); d.innerHTML=h; return d.firstElementChild; }
+
+// ── Firebase listeners ───────────────────────────────────────────
+function initFirebase() {
+  onValue(ref(db,"wines"),   snap=>{ wines   =snap.val()||{}; render(); });
+  onValue(ref(db,"slots"),   snap=>{ slots   =snap.val()||{}; render(); });
+  onValue(ref(db,"consumed"),snap=>{ consumed=snap.val()||{}; render(); });
+}
+
+async function saveWine(wine) {
+  await set(ref(db,`wines/${wine.id}`), wine);
+}
+async function deleteWine(id) {
+  await remove(ref(db,`wines/${id}`));
+}
+async function updateWine(id, updates) {
+  await update(ref(db,`wines/${id}`), updates);
+}
+async function saveSlot(locId, slot, wineId) {
+  await set(ref(db,`slots/${locId}/${slot}`), wineId);
+}
+async function clearSlot(locId, slot) {
+  await remove(ref(db,`slots/${locId}/${slot}`));
+}
+async function saveConsumed(entry) {
+  await set(ref(db,`consumed/${entry.id}`), entry);
+}
+
+// ── Worker calls ─────────────────────────────────────────────────
+async function fetchPairingsForWine(wine) {
+  try {
+    const res = await fetch(`${WORKER_URL}/pairings`, {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({
+        winery:wine.winery, wine:wine.wine, vintage:wine.vintage,
+        varietal:wine.varietal, region:wine.region,
+      }),
+    });
+    const data = await res.json();
+    if (data.pairings) {
+      await updateWine(wine.id, {
+        pairings:    data.pairings,
+        drinkWindow: data.drinkWindow||null,
+        servingTip:  data.servingTip||null,
+        pairingsAt:  Date.now(),
+      });
+    }
+  } catch(e) { console.warn("Pairings fetch failed:", e); }
+}
+
+async function scanLabel(base64) {
+  const res = await fetch(`${WORKER_URL}/scan`, {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({image:base64}),
+  });
+  return res.json();
+}
+
+// ── PIN logic ────────────────────────────────────────────────────
+let pinEntry = "";
+let pinMode  = "check"; // "check" | "set"
+
+async function initPin() {
+  const snap = await get(ref(db,"config/pin"));
+  if (snap.exists()) {
+    appPin  = snap.val();
+    pinMode = "check";
+    el("pin-subtitle").textContent = "Enter your PIN";
+  } else {
+    pinMode = "set";
+    el("pin-subtitle").textContent = "Create a 4-digit PIN";
+  }
+}
+
+function pinPress(digit) {
+  if (pinEntry.length>=4) return;
+  pinEntry += digit;
+  updatePinDots();
+  if (pinEntry.length===4) setTimeout(submitPin, 120);
+}
+
+function pinDelete() {
+  pinEntry = pinEntry.slice(0,-1);
+  updatePinDots();
+  el("pin-error").textContent="";
+  document.querySelectorAll(".pin-dot").forEach(d=>d.classList.remove("error"));
+}
+
+function updatePinDots() {
+  for (let i=0;i<4;i++) {
+    const d=el(`d${i}`);
+    d.classList.toggle("filled", i<pinEntry.length);
+  }
+}
+
+async function submitPin() {
+  if (pinMode==="set") {
+    appPin = pinEntry;
+    await set(ref(db,"config/pin"), appPin);
+    unlockApp();
+  } else {
+    if (pinEntry===appPin) {
+      unlockApp();
+    } else {
+      document.querySelectorAll(".pin-dot").forEach(d=>d.classList.add("error"));
+      el("pin-error").textContent="Incorrect PIN, try again";
+      pinEntry="";
+      setTimeout(()=>{
+        updatePinDots();
+        document.querySelectorAll(".pin-dot").forEach(d=>d.classList.remove("error"));
+        el("pin-error").textContent="";
+      },900);
+    }
+  }
+}
+
+function unlockApp() {
+  el("pin-screen").style.display="none";
+  el("app").style.display="block";
+  initFirebase();
+  render();
+}
+
+// ── Render ───────────────────────────────────────────────────────
+function render() {
+  renderHeaderBadges();
+  renderTab();
+  updateTabLabels();
+}
+
+function renderHeaderBadges() {
+  const stored = storedWineIds();
+  const pending = Object.values(wines).filter(w=>!stored.has(w.id)).length;
+  el("header-badges").innerHTML = `
+    ${pending>0?`<div style="background:rgba(184,134,11,0.15);border:1px solid rgba(184,134,11,0.3);border-radius:8px;padding:4px 10px;text-align:center">
+      <div style="font-family:'Cormorant Garamond',serif;font-size:16px;font-weight:800;color:var(--gold)">${pending}</div>
+      <div style="color:var(--brown-pale);font-size:9px;letter-spacing:1px">to store</div>
+    </div>`:""}
+    <div style="background:rgba(90,138,58,0.1);border:1px solid rgba(90,138,58,0.25);border-radius:8px;padding:4px 10px;text-align:center">
+      <div style="font-family:'Cormorant Garamond',serif;font-size:16px;font-weight:800;color:#5a8a3a">${stored.size}</div>
+      <div style="color:var(--brown-pale);font-size:9px;letter-spacing:1px">stored</div>
+    </div>
+  `;
+}
+
+function updateTabLabels() {
+  const consumedCount = Object.keys(consumed).length;
+  el("tab-consumed").textContent = `🥂 ${consumedCount>0?consumedCount:"Done"}`;
+}
+
+function switchTab(tab) {
+  currentTab=tab;
+  document.querySelectorAll(".tab-btn").forEach(b=>b.classList.remove("active"));
+  el(`tab-${tab}`).classList.add("active");
+  renderTab();
+}
+
+function renderTab() {
+  const c=el("tab-content");
+  if(currentTab==="trip")     { c.innerHTML=""; c.appendChild(renderTripTab()); }
+  if(currentTab==="cellar")   { c.innerHTML=""; c.appendChild(renderCellarTab()); }
+  if(currentTab==="find")     { c.innerHTML=""; c.appendChild(renderFindTab()); }
+  if(currentTab==="consumed") { c.innerHTML=""; c.appendChild(renderConsumedTab()); }
+}
+
+// ── TRIP TAB ─────────────────────────────────────────────────────
+function renderTripTab() {
+  const stored = storedWineIds();
+  const unassigned = Object.values(wines).filter(w=>!stored.has(w.id));
+  const frag = document.createDocumentFragment();
+
+  // Header row
+  const hdr = html(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <div class="section-label">${unassigned.length} wine${unassigned.length!==1?"s":""} to store</div>
+  </div>`);
+  const addBtn = html(`<button class="btn-primary" style="width:auto;padding:8px 18px;font-size:13px">+ Add Wine</button>`);
+  addBtn.onclick = () => showAddWineModal();
+  hdr.appendChild(addBtn);
+  frag.appendChild(hdr);
+
+  if (Object.keys(wines).length===0) {
+    frag.appendChild(html(`<div class="empty-state">
+      <div class="icon">🍷</div>
+      <div class="title">No wines yet</div>
+      <div class="sub">Tap <strong>+ Add Wine</strong> to scan a label<br>or enter a wine manually.</div>
+    </div>`));
+    return frag;
+  }
+
+  if (unassigned.length===0) {
+    frag.appendChild(html(`<div class="empty-state">
+      <div class="icon">✅</div>
+      <div class="title" style="color:#5a8a3a">All bottles stored!</div>
+      <div class="sub">Check the Cellar Map or Find a Bottle.</div>
+    </div>`));
+    return frag;
+  }
+
+  unassigned.forEach(wine => frag.appendChild(renderTripCard(wine)));
+  return frag;
+}
+
+function renderTripCard(wine) {
+  const card = html(`<div class="card" style="cursor:default">
+    <div style="display:flex;align-items:center;gap:9px;margin-bottom:3px">
+      <div class="color-dot" style="background:${colorDot(wine.color)}"></div>
+      <div style="font-family:'Cormorant Garamond',serif;font-size:17px;font-weight:700;color:var(--ink)">${wine.wine}</div>
+    </div>
+    <div style="color:var(--brown-light);font-size:13px;font-style:italic">${wine.winery}${wine.vintage?" · "+wine.vintage:""}</div>
+    <div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap">
+      ${wine.varietal?`<span style="color:var(--brown-mid);font-size:12px">${wine.varietal}</span>`:""}
+      <span style="color:var(--brown-mid);font-size:12px">×${wine.qty||1} bottle${wine.qty>1?"s":""}</span>
+      ${wine.price>0?`<span style="color:var(--brown-mid);font-size:12px">$${wine.price}/btl</span>`:""}
+      ${wine.pairings?.length?`<span style="color:var(--gold);font-size:12px">✓ Pairings ready</span>`:`<span style="color:var(--brown-pale);font-size:12px">⏳ Fetching pairings…</span>`}
+    </div>
+    ${wine.notes?`<div style="color:var(--brown-light);font-size:12px;font-style:italic;margin-top:7px">"${wine.notes}"</div>`:""}
+  </div>`);
+
+  const btn = html(`<button class="btn-primary" style="margin-top:12px">📍 Assign to Storage</button>`);
+  btn.onclick = () => showAssignModal(wine);
+  card.appendChild(btn);
+  return card;
+}
+
+// ── CELLAR TAB ───────────────────────────────────────────────────
+let cellarActiveLoc = "winefridge";
+
+function renderCellarTab() {
+  const frag = document.createDocumentFragment();
+
+  // Location picker
+  const locPicker = document.createElement("div");
+  locPicker.style.cssText = "display:flex;gap:8px;margin-bottom:16px";
+  Object.values(LOCATIONS).forEach(loc=>{
+    const occ = Object.values(slots[loc.id]||{}).filter(Boolean).length;
+    const active = cellarActiveLoc===loc.id;
+    const btn = html(`<button style="flex:1;padding:10px 3px;border-radius:10px;border:1px solid ${active?loc.color:"var(--border)"};background:${active?loc.color+"18":"var(--surface-3)"};color:${active?loc.color:"var(--brown-pale)"};font-size:10px;font-family:'Cormorant Garamond',serif;font-weight:700;line-height:1.6;cursor:pointer;transition:all 0.2s">
+      ${loc.icon}<br>${loc.name}<br><span style="font-size:9px;opacity:0.7">${occ}/${loc.slots.length}</span>
+    </button>`);
+    btn.onclick=()=>{ cellarActiveLoc=loc.id; renderTab(); };
+    locPicker.appendChild(btn);
+  });
+  frag.appendChild(locPicker);
+
+  const loc = LOCATIONS[cellarActiveLoc];
+  const locSlots = slots[cellarActiveLoc]||{};
+  const occ = Object.values(locSlots).filter(Boolean).length;
+  const total = loc.slots.length;
+  const pct = Math.round(occ/total*100);
+
+  // Capacity bar
+  frag.appendChild(html(`<div style="margin-bottom:18px">
+    <div style="display:flex;justify-content:space-between;margin-bottom:5px">
+      <span style="color:var(--brown-mid);font-size:12px">${occ} of ${total} slots used</span>
+      <span style="color:${loc.color};font-size:12px;font-weight:700">${pct}%</span>
+    </div>
+    <div class="drink-bar"><div class="drink-bar-fill" style="width:${pct}%;background:${loc.color}"></div></div>
+  </div>`));
+
+  // Slot grid
+  const isCloset = cellarActiveLoc==="closet";
+  const sections = isCloset ? loc.grid.sections : loc.grid.sections.map(s=>({id:s,rows:1,label:s}));
+
+  sections.forEach(secDef=>{
+    const secId = isCloset ? secDef.id : secDef.id;
+    const label = cellarActiveLoc==="fridge" ? `Row ${secId.replace("R","")}` :
+                  cellarActiveLoc==="winefridge" ? `Section ${secId}` : secDef.label;
+    const colCount = loc.grid.sectionCols ? loc.grid.sectionCols[secId] : loc.grid.cols;
+    const secSlots = loc.slots.filter(s=>s.startsWith(secId));
+
+    const secDiv = document.createElement("div");
+    secDiv.style.marginBottom="16px";
+    secDiv.appendChild(html(`<div class="section-label">${label}</div>`));
+
+    const rowCount = isCloset ? secDef.rows : 1;
+    for (let r=1;r<=rowCount;r++) {
+      const rowSlots = isCloset ? secSlots.filter(s=>s.includes(`-R${r}-`)) : secSlots;
+      const grid = document.createElement("div");
+      grid.style.cssText=`display:grid;grid-template-columns:repeat(${colCount},1fr);gap:4px;margin-bottom:${rowCount>1?"4px":"0"}`;
+      rowSlots.forEach(slot=>{
+        const wineId = locSlots[slot];
+        const wine   = wineId ? wines[wineId] : null;
+        const slotNum = isCloset ? slot.split("-").pop() : slot;
+        const s = document.createElement("div");
+        s.className = `slot${wine?" occupied":""}`;
+        if (wine) { s.style.borderColor=loc.color+"66"; s.style.color=loc.color; }
+        s.innerHTML = (wine ? `<div style="font-size:10px">🍷</div>` : "") + `<div style="font-size:${wine?"6":"7"}px;line-height:1">${slotNum}</div>`;
+        if (wine) s.onclick=()=>showSlotDetail(cellarActiveLoc,slot,wine);
+        grid.appendChild(s);
+      });
+      secDiv.appendChild(grid);
+    }
+    frag.appendChild(secDiv);
+  });
+
+  return frag;
+}
+
+// ── FIND TAB ─────────────────────────────────────────────────────
+let findFilters = {color:"",varietal:"",region:"",vintageFrom:"",vintageTo:"",priceMin:"",priceMax:"",scoreMin:"",readyNow:false,food:""};
+let findQuery = "";
+
+function renderFindTab() {
+  const frag = document.createDocumentFragment();
+  const stored = storedWineIds();
+  const storedWines = Object.values(wines).filter(w=>stored.has(w.id));
+
+  // Filter panel
+  frag.appendChild(renderFilterPanel(storedWines, stored));
+
+  // Search
+  const searchWrap = document.createElement("div");
+  searchWrap.style.marginBottom="12px";
+  const inp = document.createElement("input");
+  inp.placeholder="Search by name, winery, region…";
+  inp.value=findQuery;
+  inp.oninput=e=>{ findQuery=e.target.value; renderTab(); };
+  searchWrap.appendChild(inp);
+  frag.appendChild(searchWrap);
+
+  // Filter + search
+  const filtered = storedWines.filter(w=>{
+    if(findQuery && !`${w.winery} ${w.wine} ${w.vintage} ${w.varietal} ${w.region}`.toLowerCase().includes(findQuery.toLowerCase())) return false;
+    if(findFilters.color    && w.color!==findFilters.color) return false;
+    if(findFilters.varietal && w.varietal!==findFilters.varietal) return false;
+    if(findFilters.region   && !w.region?.toLowerCase().includes(findFilters.region.toLowerCase())) return false;
+    if(findFilters.vintageFrom && parseInt(w.vintage)<parseInt(findFilters.vintageFrom)) return false;
+    if(findFilters.vintageTo   && parseInt(w.vintage)>parseInt(findFilters.vintageTo))   return false;
+    if(findFilters.priceMin && w.price<parseInt(findFilters.priceMin)) return false;
+    if(findFilters.priceMax && w.price>parseInt(findFilters.priceMax)) return false;
+    if(findFilters.scoreMin && (w.score||0)<parseInt(findFilters.scoreMin)) return false;
+    if(findFilters.readyNow){ const s=drinkStatus(w); if(!s||!s.label.includes("Peak")) return false; }
+    if(findFilters.food && !matchesFood(w,findFilters.food)) return false;
+    return true;
+  });
+
+  const hasFilter = Object.values(findFilters).some(Boolean)||findQuery;
+  frag.appendChild(html(`<div style="color:var(--brown-pale);font-size:12px;margin-bottom:12px">${filtered.length} wine${filtered.length!==1?"s":""} ${hasFilter?"matching":"in cellar"}</div>`));
+
+  if (storedWines.length===0) {
+    frag.appendChild(html(`<div class="empty-state"><div class="icon">📍</div><div class="title">No wines stored yet</div></div>`));
+  } else if (filtered.length===0) {
+    const empty = html(`<div class="empty-state"><div class="icon">🔍</div><div class="title">No wines match</div></div>`);
+    if(findFilters.food) empty.appendChild(html(`<div class="sub">Get AI pairings on more wine profiles to improve food matching.</div>`));
+    frag.appendChild(empty);
+  } else {
+    filtered.forEach(wine=>{
+      const placement=findPlacement(wine.id);
+      frag.appendChild(renderFindCard(wine,placement));
+    });
+  }
+  return frag;
+}
+
+let filterOpen = false;
+
+function renderFilterPanel(storedWines, storedIds) {
+  const activeCount = [
+    findFilters.color,findFilters.varietal,findFilters.region,
+    findFilters.vintageFrom||findFilters.vintageTo,
+    findFilters.priceMin||findFilters.priceMax,
+    findFilters.scoreMin,findFilters.readyNow,findFilters.food,
+  ].filter(Boolean).length;
+
+  const wrap = document.createElement("div");
+  wrap.style.marginBottom="12px";
+
+  const hdr = document.createElement("div");
+  hdr.style.cssText="display:flex;gap:8px;align-items:center";
+
+  const toggleBtn = html(`<button style="flex:1;padding:10px 14px;border-radius:10px;border:1px solid ${activeCount?"var(--gold)":"var(--border)"};background:${activeCount?"rgba(184,134,11,0.08)":"var(--surface-2)"};color:${activeCount?"var(--gold)":"var(--brown-mid)"};font-size:13px;cursor:pointer;display:flex;align-items:center;gap:8px;font-family:'Crimson Pro',serif">
+    <span>🔧</span><span>Filter${activeCount?` · ${activeCount} active`:""}</span>
+    <span style="margin-left:auto;font-size:11px">${filterOpen?"▲":"▼"}</span>
+  </button>`);
+  toggleBtn.onclick=()=>{ filterOpen=!filterOpen; renderTab(); };
+  hdr.appendChild(toggleBtn);
+
+  if (activeCount>0) {
+    const clr=html(`<button style="padding:10px 12px;border-radius:10px;border:1px solid rgba(139,38,53,0.2);background:rgba(139,38,53,0.06);color:var(--red-wine);font-size:12px;cursor:pointer;font-family:inherit">Clear</button>`);
+    clr.onclick=()=>{ findFilters={color:"",varietal:"",region:"",vintageFrom:"",vintageTo:"",priceMin:"",priceMax:"",scoreMin:"",readyNow:false,food:""}; renderTab(); };
+    hdr.appendChild(clr);
+  }
+  wrap.appendChild(hdr);
+
+  if (!filterOpen) return wrap;
+
+  const panel = html(`<div style="background:rgba(255,255,255,0.6);border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:10px;display:flex;flex-direction:column;gap:14px"></div>`);
+
+  // Food filter
+  const withPairings = storedWines.filter(w=>w.pairings?.length).length;
+  const foodSec = html(`<div>
+    <div class="section-label">What are you eating?</div>
+    ${withPairings<storedWines.length&&storedWines.length>0?`<div style="color:var(--brown-pale);font-size:11px;margin-bottom:8px;font-style:italic">Get AI pairings on wine profiles to enable food matching for more bottles.</div>`:""}
+  </div>`);
+  const foodWrap=document.createElement("div"); foodWrap.style.cssText="display:flex;flex-wrap:wrap;gap:6px";
+  FOOD_PAIRINGS.forEach(f=>{
+    const active=findFilters.food===f.id;
+    const matchCount=storedWines.filter(w=>matchesFood(w,f.id)).length;
+    const btn=html(`<button style="padding:6px 11px;border-radius:20px;border:1px solid ${active?"var(--gold)":"var(--border)"};background:${active?"rgba(184,134,11,0.12)":"var(--surface-3)"};color:${active?"var(--gold)":matchCount>0?"var(--brown-mid)":"var(--brown-pale)"};font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px;font-family:inherit">
+      <span>${f.emoji}</span><span>${f.label}</span>${matchCount>0?`<span class="badge-count">${matchCount}</span>`:""}
+    </button>`);
+    btn.onclick=()=>{ findFilters.food=active?"":f.id; renderTab(); };
+    foodWrap.appendChild(btn);
+  });
+  foodSec.appendChild(foodWrap);
+  panel.appendChild(foodSec);
+
+  panel.appendChild(html(`<div class="divider"></div>`));
+
+  // Color
+  const colorSec=html(`<div><div class="section-label">Color</div><div style="display:flex;gap:6px;flex-wrap:wrap"></div></div>`);
+  COLOR_OPTIONS.forEach(c=>{
+    const active=findFilters.color===c;
+    const dot=colorDot(c);
+    const btn=html(`<button style="padding:5px 12px;border-radius:20px;border:1px solid ${active?dot:"var(--border)"};background:${active?dot+"22":"transparent"};color:${active?dot:"var(--brown-mid)"};font-size:12px;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:5px">
+      <span style="width:8px;height:8px;border-radius:50%;background:${dot};display:inline-block"></span>${c}
+    </button>`);
+    btn.onclick=()=>{ findFilters.color=active?"":c; renderTab(); };
+    colorSec.querySelector("div:last-child").appendChild(btn);
+  });
+  panel.appendChild(colorSec);
+
+  // Varietal
+  const varSec=html(`<div><div class="section-label">Varietal</div></div>`);
+  const sel=document.createElement("select");
+  sel.innerHTML=`<option value="">Any varietal</option>`+VARIETAL_OPTIONS.map(v=>`<option value="${v}"${findFilters.varietal===v?" selected":""}>${v}</option>`).join("");
+  sel.onchange=e=>{ findFilters.varietal=e.target.value; renderTab(); };
+  varSec.appendChild(sel); panel.appendChild(varSec);
+
+  // Region
+  const regSec=html(`<div><div class="section-label">Region</div></div>`);
+  const ri=document.createElement("input"); ri.placeholder="e.g. Napa Valley"; ri.value=findFilters.region;
+  ri.oninput=e=>{ findFilters.region=e.target.value; renderTab(); };
+  regSec.appendChild(ri); panel.appendChild(regSec);
+
+  // Vintage
+  const vinSec=html(`<div><div class="section-label">Vintage Year</div><div style="display:flex;gap:8px"></div></div>`);
+  const vf=document.createElement("input"); vf.placeholder="From"; vf.inputMode="numeric"; vf.maxLength=4; vf.value=findFilters.vintageFrom;
+  const vt=document.createElement("input"); vt.placeholder="To";   vt.inputMode="numeric"; vt.maxLength=4; vt.value=findFilters.vintageTo;
+  vf.oninput=e=>{ findFilters.vintageFrom=e.target.value.replace(/\D/g,""); renderTab(); };
+  vt.oninput=e=>{ findFilters.vintageTo  =e.target.value.replace(/\D/g,""); renderTab(); };
+  vinSec.querySelector("div:last-child").append(vf,vt); panel.appendChild(vinSec);
+
+  // Price
+  const priceSec=html(`<div><div class="section-label">Price Per Bottle ($)</div><div style="display:flex;gap:8px"></div></div>`);
+  const pn=document.createElement("input"); pn.placeholder="Min"; pn.inputMode="numeric"; pn.value=findFilters.priceMin;
+  const px=document.createElement("input"); px.placeholder="Max"; px.inputMode="numeric"; px.value=findFilters.priceMax;
+  pn.oninput=e=>{ findFilters.priceMin=e.target.value.replace(/\D/g,""); renderTab(); };
+  px.oninput=e=>{ findFilters.priceMax=e.target.value.replace(/\D/g,""); renderTab(); };
+  priceSec.querySelector("div:last-child").append(pn,px); panel.appendChild(priceSec);
+
+  // Score
+  const scoreSec=html(`<div><div class="section-label">Min Critic Score</div><div style="display:flex;gap:6px;flex-wrap:wrap"></div></div>`);
+  ["","85","88","90","92","95"].forEach(s=>{
+    const active=findFilters.scoreMin===s;
+    const btn=html(`<button style="padding:5px 12px;border-radius:20px;border:1px solid ${active?"var(--gold)":"var(--border)"};background:${active?"rgba(184,134,11,0.12)":"transparent"};color:${active?"var(--gold)":"var(--brown-mid)"};font-size:12px;cursor:pointer;font-family:inherit">${s?s+"+":"Any"}</button>`);
+    btn.onclick=()=>{ findFilters.scoreMin=s; renderTab(); };
+    scoreSec.querySelector("div:last-child").appendChild(btn);
+  });
+  panel.appendChild(scoreSec);
+
+  // Ready now
+  const rdy=html(`<button style="padding:10px 14px;border-radius:10px;border:1px solid ${findFilters.readyNow?"#5a8a3a":"var(--border)"};background:${findFilters.readyNow?"rgba(90,138,58,0.1)":"transparent"};color:${findFilters.readyNow?"#5a8a3a":"var(--brown-mid)"};font-size:13px;cursor:pointer;font-family:'Crimson Pro',serif;text-align:left;width:100%">
+    ✅ Ready to drink now only
+  </button>`);
+  rdy.onclick=()=>{ findFilters.readyNow=!findFilters.readyNow; renderTab(); };
+  panel.appendChild(rdy);
+
+  wrap.appendChild(panel);
+  return wrap;
+}
+
+function renderFindCard(wine, placement) {
+  const loc    = placement ? LOCATIONS[placement.locId] : null;
+  const status = drinkStatus(wine);
+  const card   = html(`<div class="card" style="cursor:pointer">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+          <div class="color-dot" style="background:${colorDot(wine.color)}"></div>
+          <div style="font-family:'Cormorant Garamond',serif;font-size:16px;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${wine.wine}</div>
+        </div>
+        <div style="color:var(--brown-light);font-size:13px;font-style:italic">${wine.winery}${wine.vintage?" · "+wine.vintage:""}</div>
+        <div style="display:flex;gap:8px;margin-top:7px;flex-wrap:wrap;align-items:center">
+          ${wine.varietal?`<span style="color:var(--brown-pale);font-size:11px">${wine.varietal}</span>`:""}
+          ${wine.score?`<span style="color:${scoreColor(wine.score)};font-size:11px;font-weight:700">${wine.score}pts</span>`:""}
+          ${status?`<span style="color:${status.color};font-size:11px">${status.emoji} ${status.label.split("·")[0].trim()}</span>`:""}
+        </div>
+        ${wine.pairings?.length?`<div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap">
+          ${wine.pairings.slice(0,2).map(p=>`<span style="background:rgba(184,134,11,0.1);border-radius:10px;padding:2px 8px;color:var(--brown-mid);font-size:10px">${p}</span>`).join("")}
+          ${wine.pairings.length>2?`<span style="color:var(--brown-pale);font-size:10px">+${wine.pairings.length-2} more</span>`:""}
+        </div>`:""}
+      </div>
+      ${loc?`<div style="text-align:right;flex-shrink:0">
+        <div style="background:${loc.color}18;color:${loc.color};font-size:11px;padding:3px 9px;border-radius:9px;font-weight:700;margin-bottom:3px;border:1px solid ${loc.color}33">${loc.icon} ${placement.slot}</div>
+        <div style="color:var(--brown-pale);font-size:10px">${loc.name}</div>
+      </div>`:""}
+    </div>
+  </div>`);
+  card.onclick=()=>showWineProfile(wine);
+  return card;
+}
+
+// ── CONSUMED TAB ─────────────────────────────────────────────────
+function renderConsumedTab() {
+  const frag    = document.createDocumentFragment();
+  const entries = Object.values(consumed).sort((a,b)=>b.consumedAt-a.consumedAt);
+  const total   = entries.reduce((s,c)=>s+(c.price||0),0);
+
+  const stats = html(`<div style="display:flex;gap:10px;margin-bottom:20px">
+    <div class="card" style="flex:1;text-align:center;padding:12px 8px">
+      <div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:800;color:var(--gold)">${entries.length}</div>
+      <div style="color:var(--brown-pale);font-size:11px">Bottles</div>
+    </div>
+    <div class="card" style="flex:1;text-align:center;padding:12px 8px">
+      <div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:800;color:var(--red-wine)">$${total.toFixed(0)}</div>
+      <div style="color:var(--brown-pale);font-size:11px">Total Value</div>
+    </div>
+  </div>`);
+  frag.appendChild(stats);
+
+  if (entries.length===0) {
+    frag.appendChild(html(`<div class="empty-state"><div class="icon">🥂</div><div class="title">Nothing consumed yet</div><div class="sub">Mark bottles as consumed from Find a Bottle.</div></div>`));
+    return frag;
+  }
+
+  entries.forEach(c=>{
+    const loc=c.locId?LOCATIONS[c.locId]:null;
+    const d=new Date(c.consumedAt);
+    const dateStr=d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});
+    frag.appendChild(html(`<div class="card" style="opacity:0.88">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
+            <div class="color-dot" style="background:${colorDot(c.color)}"></div>
+            <div style="font-family:'Cormorant Garamond',serif;font-size:15px;font-weight:700;color:var(--ink)">${c.wine}</div>
+          </div>
+          <div style="color:var(--brown-light);font-size:12px;font-style:italic">${c.winery}${c.vintage?" · "+c.vintage:""}</div>
+          <div style="display:flex;gap:10px;margin-top:5px;flex-wrap:wrap">
+            ${c.price>0?`<span style="color:var(--brown-pale);font-size:11px">$${c.price}/btl</span>`:""}
+            ${loc?`<span style="color:var(--brown-pale);font-size:11px">${loc.icon} was in ${loc.name} · ${c.slot}</span>`:""}
+          </div>
+          ${c.pairings?.length?`<div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap">
+            ${c.pairings.slice(0,3).map(p=>`<span style="background:rgba(184,134,11,0.08);border-radius:10px;padding:2px 8px;color:var(--brown-pale);font-size:10px">${p}</span>`).join("")}
+          </div>`:""}
+        </div>
+        <div style="color:var(--brown-pale);font-size:10px;text-align:right;flex-shrink:0;margin-left:10px">${dateStr}</div>
+      </div>
+    </div>`));
+  });
+
+  return frag;
+}
+
+// ── ADD WINE MODAL ───────────────────────────────────────────────
+let addWineScreen = "choose"; // choose | scanning | form
+let addWineForm   = {};
+let addWineScanPreview = null;
+let addWineScanError   = null;
+
+function showAddWineModal() {
+  addWineScreen     = "choose";
+  addWineForm       = {winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",score:"",drinkFrom:"",drinkTo:"",notes:""};
+  addWineScanPreview= null;
+  addWineScanError  = null;
+  renderAddWineModal();
+}
+
+function renderAddWineModal() {
+  const root = el("modal-root");
+  root.innerHTML="";
+
+  const overlay=document.createElement("div"); overlay.className="modal-overlay";
+  const sheet  =document.createElement("div"); sheet.className="modal-sheet";
+  overlay.onclick=e=>{ if(e.target===overlay) root.innerHTML=""; };
+  sheet.appendChild(html(`<div class="modal-handle"></div>`));
+
+  if (addWineScreen==="choose") {
+    sheet.appendChild(html(`<div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:800;color:var(--ink);margin-bottom:6px">Add a Wine</div>`));
+    sheet.appendChild(html(`<div style="color:var(--brown-mid);font-size:14px;margin-bottom:24px">How would you like to add it?</div>`));
+
+    // Scan
+    const scanBox=html(`<div style="background:rgba(184,134,11,0.06);border:2px dashed rgba(184,134,11,0.3);border-radius:16px;padding:32px 20px;text-align:center;cursor:pointer;margin-bottom:12px">
+      <div style="font-size:42px;margin-bottom:10px">📷</div>
+      <div style="font-family:'Cormorant Garamond',serif;font-size:19px;font-weight:700;color:var(--gold);margin-bottom:5px">Scan the Label</div>
+      <div style="color:var(--brown-mid);font-size:13px;line-height:1.5">Take a photo of the bottle.<br>Claude reads the label and pre-fills the form.</div>
+    </div>`);
+    scanBox.onclick=()=>{
+      const inp=document.createElement("input"); inp.type="file"; inp.accept="image/*"; inp.capture="environment";
+      inp.onchange=async e=>{
+        const file=e.target.files[0]; if(!file) return;
+        const reader=new FileReader();
+        reader.onload=async ev=>{
+          addWineScanPreview=ev.target.result;
+          addWineScreen="scanning";
+          renderAddWineModal();
+          try {
+            const b64=ev.target.result.split(",")[1];
+            const result=await scanLabel(b64);
+            if(result.error){ addWineScanError="Couldn't read label — fill in manually."; addWineScreen="form"; renderAddWineModal(); return; }
+            addWineForm.winery   = result.winery  ||"";
+            addWineForm.wine     = result.wine    ||"";
+            addWineForm.vintage  = result.vintage ||"";
+            addWineForm.varietal = result.varietal||"";
+            addWineForm.region   = result.region  ||"";
+            if(COLOR_OPTIONS.includes(result.color)) addWineForm.color=result.color;
+            addWineScreen="form"; renderAddWineModal();
+          } catch { addWineScanError="Scan failed — fill in manually."; addWineScreen="form"; renderAddWineModal(); }
+        };
+        reader.readAsDataURL(file);
+      };
+      inp.click();
+    };
+    sheet.appendChild(scanBox);
+
+    // Manual
+    const manualBox=html(`<div style="background:var(--surface-2);border:1px solid var(--border);border-radius:16px;padding:20px;text-align:center;cursor:pointer">
+      <div style="font-size:32px;margin-bottom:8px">✏️</div>
+      <div style="font-family:'Cormorant Garamond',serif;font-size:19px;font-weight:700;color:var(--brown-mid);margin-bottom:4px">Enter Manually</div>
+      <div style="color:var(--brown-pale);font-size:13px">Type in the wine details yourself.</div>
+    </div>`);
+    manualBox.onclick=()=>{ addWineScreen="form"; renderAddWineModal(); };
+    sheet.appendChild(manualBox);
+  }
+
+  else if (addWineScreen==="scanning") {
+    if(addWineScanPreview){
+      const img=document.createElement("img"); img.src=addWineScanPreview;
+      img.style.cssText="width:100%;max-height:200px;object-fit:contain;border-radius:12px;margin-bottom:20px;background:#f5ede0";
+      sheet.appendChild(img);
+    }
+    const sp=html(`<div style="text-align:center;padding:20px 0">
+      <div style="width:44px;height:44px;margin:0 auto 16px"></div>
+      <div style="font-family:'Cormorant Garamond',serif;font-size:20px;color:var(--gold);font-weight:700">Reading label…</div>
+      <div style="color:var(--brown-pale);font-size:13px;margin-top:6px">Claude is analyzing your bottle</div>
+    </div>`);
+    const spinner=document.createElement("div"); spinner.className="spinner"; spinner.style.margin="0 auto";
+    sp.querySelector("div").appendChild(spinner);
+    sheet.appendChild(sp);
+  }
+
+  else if (addWineScreen==="form") {
+    // Back + title
+    const titleRow=html(`<div style="display:flex;align-items:center;gap:12px;margin-bottom:18px"></div>`);
+    const back=html(`<button style="background:none;border:none;color:var(--brown-mid);font-size:18px;cursor:pointer;padding:0">←</button>`);
+    back.onclick=()=>{ addWineScreen="choose"; renderAddWineModal(); };
+    titleRow.appendChild(back);
+    titleRow.appendChild(html(`<div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:800;color:var(--ink)">${addWineScanPreview?"Confirm Details":"Add Wine"}</div>`));
+    sheet.appendChild(titleRow);
+
+    if(addWineScanError) sheet.appendChild(html(`<div style="background:rgba(139,38,53,0.08);border:1px solid rgba(139,38,53,0.2);border-radius:10px;padding:10px 14px;margin-bottom:14px;color:var(--red-wine);font-size:13px">⚠️ ${addWineScanError}</div>`));
+    if(addWineScanPreview){
+      const img=document.createElement("img"); img.src=addWineScanPreview;
+      img.style.cssText="width:100%;max-height:130px;object-fit:contain;border-radius:10px;margin-bottom:16px;background:#f5ede0;border:1px solid var(--border)";
+      sheet.appendChild(img);
+    }
+
+    const form=document.createElement("div"); form.style.cssText="display:flex;flex-direction:column;gap:13px";
+
+    // Color pills
+    const colorRow=document.createElement("div");
+    colorRow.appendChild(html(`<div class="field-label">Color</div>`));
+    const pills=document.createElement("div"); pills.style.cssText="display:flex;gap:6px";
+    COLOR_OPTIONS.forEach(c=>{
+      const active=addWineForm.color===c; const dot=colorDot(c);
+      const btn=html(`<button style="flex:1;padding:8px 4px;border-radius:9px;border:1px solid ${active?dot:"var(--border)"};background:${active?dot+"22":"transparent"};color:${active?dot:"var(--brown-pale)"};font-size:11px;cursor:pointer;font-family:inherit;font-weight:700">${c}</button>`);
+      btn.onclick=()=>{ addWineForm.color=c; renderAddWineModal(); };
+      pills.appendChild(btn);
+    });
+    colorRow.appendChild(pills); form.appendChild(colorRow);
+
+    // Text fields
+    const fields=[
+      {key:"winery",label:"Winery *",placeholder:"e.g. Caymus Vineyards"},
+      {key:"wine",  label:"Wine Name *",placeholder:"e.g. Special Selection Cabernet"},
+    ];
+    fields.forEach(f=>{
+      const wrap=document.createElement("div");
+      wrap.appendChild(html(`<div class="field-label">${f.label}</div>`));
+      const inp=document.createElement("input"); inp.placeholder=f.placeholder; inp.value=addWineForm[f.key];
+      inp.oninput=e=>addWineForm[f.key]=e.target.value;
+      wrap.appendChild(inp); form.appendChild(wrap);
+    });
+
+    // Vintage + Qty
+    const row1=html(`<div style="display:flex;gap:10px"></div>`);
+    ["vintage","qty"].forEach((k,i)=>{
+      const w=document.createElement("div"); w.style.flex="1";
+      w.appendChild(html(`<div class="field-label">${i===0?"Vintage":"Quantity"}</div>`));
+      const inp=document.createElement("input"); inp.placeholder=i===0?"2021":"1"; inp.value=addWineForm[k]; inp.inputMode="numeric"; if(i===0) inp.maxLength=4;
+      inp.oninput=e=>addWineForm[k]=e.target.value.replace(/\D/g,"");
+      w.appendChild(inp); row1.appendChild(w);
+    });
+    form.appendChild(row1);
+
+    // Varietal select
+    const varWrap=document.createElement("div");
+    varWrap.appendChild(html(`<div class="field-label">Varietal</div>`));
+    const sel=document.createElement("select");
+    sel.innerHTML=`<option value="">Select varietal…</option>`+VARIETAL_OPTIONS.map(v=>`<option value="${v}"${addWineForm.varietal===v?" selected":""}>${v}</option>`).join("");
+    sel.onchange=e=>addWineForm.varietal=e.target.value;
+    varWrap.appendChild(sel); form.appendChild(varWrap);
+
+    // Region
+    const regWrap=document.createElement("div");
+    regWrap.appendChild(html(`<div class="field-label">Region / Appellation</div>`));
+    const ri=document.createElement("input"); ri.placeholder="e.g. Napa Valley, CA"; ri.value=addWineForm.region;
+    ri.oninput=e=>addWineForm.region=e.target.value;
+    regWrap.appendChild(ri); form.appendChild(regWrap);
+
+    // Price + Score
+    const row2=html(`<div style="display:flex;gap:10px"></div>`);
+    [{k:"price",l:"Price / Bottle ($)",p:"0.00"},{k:"score",l:"Critic Score",p:"92"}].forEach(({k,l,p})=>{
+      const w=document.createElement("div"); w.style.flex="1";
+      w.appendChild(html(`<div class="field-label">${l}</div>`));
+      const inp=document.createElement("input"); inp.placeholder=p; inp.value=addWineForm[k]; inp.inputMode="decimal";
+      inp.oninput=e=>addWineForm[k]=e.target.value.replace(/[^0-9.]/g,"");
+      w.appendChild(inp); row2.appendChild(w);
+    });
+    form.appendChild(row2);
+
+    // Drink window
+    const row3=html(`<div style="display:flex;gap:10px"></div>`);
+    [{k:"drinkFrom",l:"Drink From",p:"2024"},{k:"drinkTo",l:"Drink To",p:"2035"}].forEach(({k,l,p})=>{
+      const w=document.createElement("div"); w.style.flex="1";
+      w.appendChild(html(`<div class="field-label">${l}</div>`));
+      const inp=document.createElement("input"); inp.placeholder=p; inp.value=addWineForm[k]; inp.inputMode="numeric"; inp.maxLength=4;
+      inp.oninput=e=>addWineForm[k]=e.target.value.replace(/\D/g,"");
+      w.appendChild(inp); row3.appendChild(w);
+    });
+    form.appendChild(row3);
+
+    // Notes
+    const notesWrap=document.createElement("div");
+    notesWrap.appendChild(html(`<div class="field-label">Tasting Notes</div>`));
+    const ta=document.createElement("textarea"); ta.placeholder="Dark fruit, hints of oak…"; ta.value=addWineForm.notes;
+    ta.oninput=e=>addWineForm.notes=e.target.value;
+    notesWrap.appendChild(ta); form.appendChild(notesWrap);
+
+    sheet.appendChild(form);
+
+    // Actions
+    const actions=html(`<div style="display:flex;gap:10px;margin-top:20px"></div>`);
+    const cancel=html(`<button class="btn-ghost" style="flex:1">Cancel</button>`);
+    cancel.onclick=()=>root.innerHTML="";
+    const save=html(`<button class="btn-primary" style="flex:2">Add to Trip List</button>`);
+    save.onclick=async()=>{
+      if(!addWineForm.winery?.trim()||!addWineForm.wine?.trim()){
+        alert("Winery and wine name are required."); return;
+      }
+      const wine={
+        id: String(nextId++),
+        winery:  addWineForm.winery.trim(),
+        wine:    addWineForm.wine.trim(),
+        vintage: addWineForm.vintage.trim(),
+        color:   addWineForm.color||"Red",
+        varietal:addWineForm.varietal.trim(),
+        region:  addWineForm.region.trim(),
+        price:   parseFloat(addWineForm.price)||0,
+        qty:     parseInt(addWineForm.qty)||1,
+        score:   parseInt(addWineForm.score)||null,
+        drinkFrom:parseInt(addWineForm.drinkFrom)||null,
+        drinkTo:  parseInt(addWineForm.drinkTo)||null,
+        notes:   addWineForm.notes.trim(),
+        pairings:null, drinkWindow:null, servingTip:null,
+        createdAt:Date.now(),
+      };
+      save.textContent="Saving…"; save.disabled=true;
+      await saveWine(wine);
+      root.innerHTML="";
+      // Fetch pairings in background
+      fetchPairingsForWine(wine);
+    };
+    actions.appendChild(cancel); actions.appendChild(save);
+    sheet.appendChild(actions);
+  }
+
+  overlay.appendChild(sheet);
+  root.appendChild(overlay);
+}
+
+// ── ASSIGN MODAL ─────────────────────────────────────────────────
+let assignLoc  = "winefridge";
+let assignSlot = null;
+
+function showAssignModal(wine) {
+  assignLoc  = "winefridge";
+  assignSlot = null;
+  renderAssignModal(wine);
+}
+
+function renderAssignModal(wine) {
+  const root=el("modal-root"); root.innerHTML="";
+  const overlay=document.createElement("div"); overlay.className="modal-overlay";
+  const sheet  =document.createElement("div"); sheet.className="modal-sheet";
+  overlay.onclick=e=>{ if(e.target===overlay) root.innerHTML=""; };
+  sheet.appendChild(html(`<div class="modal-handle"></div>`));
+  sheet.appendChild(html(`<div style="font-family:'Cormorant Garamond',serif;font-size:19px;font-weight:800;color:var(--ink);margin-bottom:2px">Assign to Storage</div>`));
+  sheet.appendChild(html(`<div style="color:var(--brown-light);font-size:13px;font-style:italic;margin-bottom:18px">${wine.wine} · ${wine.vintage||""}</div>`));
+
+  // Location picker
+  const locRow=document.createElement("div"); locRow.style.cssText="display:flex;gap:7px;margin-bottom:18px";
+  Object.values(LOCATIONS).forEach(loc=>{
+    const active=assignLoc===loc.id;
+    const btn=html(`<button style="flex:1;padding:9px 3px;border-radius:9px;border:1px solid ${active?loc.color:"var(--border)"};background:${active?loc.color+"18":"transparent"};color:${active?loc.color:"var(--brown-pale)"};font-size:10px;cursor:pointer;font-family:'Cormorant Garamond',serif;font-weight:700">${loc.icon}<br>${loc.name}</button>`);
+    btn.onclick=()=>{ assignLoc=loc.id; assignSlot=null; renderAssignModal(wine); };
+    locRow.appendChild(btn);
+  });
+  sheet.appendChild(locRow);
+
+  sheet.appendChild(html(`<div class="section-label">Select slot · <span style="color:var(--brown-pale)">🍷 = occupied</span></div>`));
+
+  const loc     = LOCATIONS[assignLoc];
+  const locSlots= slots[assignLoc]||{};
+  const isCloset= assignLoc==="closet";
+  const sections= isCloset ? loc.grid.sections : loc.grid.sections.map(s=>({id:s,rows:1}));
+
+  sections.forEach(secDef=>{
+    const secId   = isCloset ? secDef.id : secDef.id;
+    const colCount= loc.grid.sectionCols ? loc.grid.sectionCols[secId] : loc.grid.cols;
+    const label   = assignLoc==="fridge" ? `Row ${secId.replace("R","")}` :
+                    assignLoc==="winefridge" ? `Section ${secId}` : secDef.label;
+    const secSlots= loc.slots.filter(s=>s.startsWith(secId));
+
+    const secDiv=document.createElement("div"); secDiv.style.marginBottom="12px";
+    secDiv.appendChild(html(`<div style="color:var(--brown-pale);font-size:10px;letter-spacing:1px;margin-bottom:5px">${label}</div>`));
+
+    const rowCount=isCloset?secDef.rows:1;
+    for(let r=1;r<=rowCount;r++){
+      const rowSlots=isCloset?secSlots.filter(s=>s.includes(`-R${r}-`)):secSlots;
+      const grid=document.createElement("div");
+      grid.style.cssText=`display:grid;grid-template-columns:repeat(${colCount},1fr);gap:4px;margin-bottom:${rowCount>1?"4px":"0"}`;
+      rowSlots.forEach(s=>{
+        const wid   = locSlots[s];
+        const taken = wid && wid!==wine.id;
+        const sel   = assignSlot===s;
+        const lbl   = isCloset ? s.split("-").pop() : s;
+        const btn   = document.createElement("button");
+        btn.style.cssText=`aspect-ratio:1;border-radius:5px;border:${sel?`2px solid ${loc.color}`:taken?"1px solid var(--border-2)":"1px solid var(--border)"};background:${sel?loc.color+"22":taken?"rgba(107,61,30,0.04)":"var(--surface-3)"};color:${sel?loc.color:taken?"var(--brown-pale)":"var(--brown-pale)"};font-size:${taken?10:8}px;font-family:monospace;font-weight:700;cursor:${taken?"not-allowed":"pointer"};display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0;transition:all 0.12s`;
+        btn.textContent=taken?"🍷":lbl;
+        if(!taken) btn.onclick=()=>{ assignSlot=s; renderAssignModal(wine); };
+        grid.appendChild(btn);
+      });
+      secDiv.appendChild(grid);
+    }
+    sheet.appendChild(secDiv);
+  });
+
+  if(assignSlot){
+    sheet.appendChild(html(`<div style="background:rgba(184,134,11,0.1);border:1px solid rgba(184,134,11,0.25);border-radius:10px;padding:11px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center">
+      <span style="color:var(--brown-mid);font-size:13px">Selected</span>
+      <span style="color:${LOCATIONS[assignLoc].color};font-weight:800;font-family:monospace;font-size:16px">${LOCATIONS[assignLoc].name} · ${assignSlot}</span>
+    </div>`));
+  }
+
+  const saveBtnLabel = assignSlot ? `Save to ${LOCATIONS[assignLoc].name} · ${assignSlot}` : "Select a slot above";
+  const saveBtn=html(`<button class="${assignSlot?"btn-primary":"btn-ghost"}" style="${assignSlot?"":"cursor:not-allowed;opacity:0.5"}">${saveBtnLabel}</button>`);
+  saveBtn.onclick=async()=>{
+    if(!assignSlot) return;
+    // Clear any old slot for this wine
+    for(const lid of Object.keys(LOCATIONS))
+      for(const [sl,wid] of Object.entries(slots[lid]||{}))
+        if(wid===wine.id) await clearSlot(lid,sl);
+    await saveSlot(assignLoc,assignSlot,wine.id);
+    root.innerHTML="";
+  };
+  sheet.appendChild(saveBtn);
+  overlay.appendChild(sheet);
+  root.appendChild(overlay);
+}
+
+// ── WINE PROFILE ─────────────────────────────────────────────────
+function showWineProfile(wine) {
+  const root=el("modal-root"); root.innerHTML="";
+  const overlay=document.createElement("div"); overlay.className="modal-overlay";
+  const sheet  =document.createElement("div"); sheet.className="modal-sheet";
+  overlay.onclick=e=>{ if(e.target===overlay) root.innerHTML=""; };
+
+  const placement=findPlacement(wine.id);
+  const loc      =placement?LOCATIONS[placement.locId]:null;
+  const status   =drinkStatus(wine);
+
+  sheet.appendChild(html(`<div class="modal-handle"></div>`));
+
+  // Title
+  sheet.appendChild(html(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:5px">
+    <div class="color-dot" style="background:${colorDot(wine.color)}"></div>
+    <span style="color:var(--brown-mid);font-size:11px;letter-spacing:2px;text-transform:uppercase">${wine.color||""}${wine.varietal?" · "+wine.varietal:""}</span>
+  </div>`));
+  sheet.appendChild(html(`<div style="font-family:'Cormorant Garamond',serif;font-size:23px;font-weight:800;color:var(--ink);line-height:1.2;margin-bottom:2px">${wine.wine}</div>`));
+  sheet.appendChild(html(`<div style="color:var(--brown-light);font-size:14px;font-style:italic;margin-bottom:14px">${wine.winery}</div>`));
+
+  // Tags
+  const tags=document.createElement("div"); tags.style.cssText="display:flex;gap:7px;margin-bottom:16px;flex-wrap:wrap";
+  if(wine.vintage) tags.appendChild(html(`<span class="pill">${wine.vintage}</span>`));
+  if(wine.region)  tags.appendChild(html(`<span class="pill">${wine.region}</span>`));
+  if(wine.score)   tags.appendChild(html(`<span class="pill" style="background:${scoreColor(wine.score)}18;border-color:${scoreColor(wine.score)}44;color:${scoreColor(wine.score)};font-weight:800;font-family:monospace">${wine.score}pts</span>`));
+  if(wine.price>0) tags.appendChild(html(`<span class="pill">$${wine.price}/btl</span>`));
+  sheet.appendChild(tags);
+
+  // Drink window
+  if(status){
+    const dw=html(`<div style="background:${status.color}18;border:1px solid ${status.color}33;border-radius:12px;padding:12px 14px;margin-bottom:14px">
+      <div style="color:${status.color};font-size:13px;font-weight:700;margin-bottom:${status.pct!==undefined?6:0}px">${status.emoji} ${status.label}</div>
+      ${wine.drinkFrom?`<div style="color:var(--brown-pale);font-size:11px;margin-bottom:${status.pct!==undefined?8:0}px">Window: ${wine.drinkFrom}–${wine.drinkTo}</div>`:""}
+    </div>`);
+    if(status.pct!==undefined){
+      const bar=html(`<div class="drink-bar"><div class="drink-bar-fill" style="width:${status.pct}%;background:${status.color}"></div></div>`);
+      dw.appendChild(bar);
+    }
+    sheet.appendChild(dw);
+  }
+
+  // Location
+  if(loc){
+    sheet.appendChild(html(`<div style="background:${loc.color}12;border:1px solid ${loc.color}33;border-radius:12px;padding:14px 16px;margin-bottom:14px;display:flex;align-items:center;gap:14px">
+      <div style="font-size:28px">${loc.icon}</div>
+      <div>
+        <div style="color:var(--brown-pale);font-size:10px;letter-spacing:2px;text-transform:uppercase">Stored in</div>
+        <div style="font-family:'Cormorant Garamond',serif;font-size:16px;font-weight:800;color:${loc.color}">${loc.name}</div>
+        <div style="color:var(--ink);font-size:24px;font-weight:900;font-family:monospace;letter-spacing:2px">${placement.slot}</div>
+      </div>
+    </div>`));
+  }
+
+  // AI Sommelier
+  const aiBox=html(`<div style="background:rgba(184,134,11,0.06);border:1px solid rgba(184,134,11,0.2);border-radius:14px;padding:16px;margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div style="color:var(--gold);font-size:11px;letter-spacing:2px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">🤖 AI Sommelier</div>
+    </div>
+  </div>`);
+
+  if(wine.pairings?.length){
+    const inner=document.createElement("div");
+    inner.appendChild(html(`<div class="section-label" style="margin-bottom:8px">Food Pairings</div>`));
+    const tags2=document.createElement("div"); tags2.style.cssText="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px";
+    wine.pairings.forEach(p=>{
+      tags2.appendChild(html(`<span style="background:rgba(184,134,11,0.1);border:1px solid rgba(184,134,11,0.2);border-radius:20px;padding:4px 12px;color:var(--gold);font-size:13px">${p}</span>`));
+    });
+    inner.appendChild(tags2);
+    if(wine.drinkWindow){
+      inner.appendChild(html(`<div class="section-label" style="margin-bottom:4px">Prime Drinking</div>`));
+      inner.appendChild(html(`<div style="color:var(--brown-mid);font-size:13px;line-height:1.6;margin-bottom:10px">${wine.drinkWindow}</div>`));
+    }
+    if(wine.servingTip){
+      inner.appendChild(html(`<div class="section-label" style="margin-bottom:4px">Serving Tip</div>`));
+      inner.appendChild(html(`<div style="color:var(--brown-light);font-size:13px;line-height:1.6;font-style:italic">${wine.servingTip}</div>`));
+    }
+    aiBox.appendChild(inner);
+  } else {
+    const pending=html(`<div style="display:flex;align-items:center;gap:10px;color:var(--brown-mid);font-size:13px;font-style:italic">
+      <div class="spinner"></div>Fetching pairings from AI sommelier…
+    </div>`);
+    aiBox.appendChild(pending);
+  }
+  sheet.appendChild(aiBox);
+
+  // Notes
+  if(wine.notes){
+    sheet.appendChild(html(`<div style="background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:14px 16px;color:var(--brown-mid);font-size:14px;font-style:italic;line-height:1.6;margin-bottom:14px">"${wine.notes}"</div>`));
+  }
+
+  // Consume button
+  if(placement){
+    const consumeBtn=html(`<button class="btn-danger">🍽 Mark as Consumed</button>`);
+    consumeBtn.onclick=async()=>{
+      const entry={...wine,locId:placement.locId,slot:placement.slot,consumedAt:Date.now()};
+      await clearSlot(placement.locId,placement.slot);
+      await saveConsumed(entry);
+      root.innerHTML="";
+    };
+    sheet.appendChild(consumeBtn);
+  }
+
+  overlay.appendChild(sheet);
+  root.appendChild(overlay);
+}
+
+// ── SLOT DETAIL MODAL ────────────────────────────────────────────
+function showSlotDetail(locId,slot,wine){
+  const root=el("modal-root"); root.innerHTML="";
+  const loc=LOCATIONS[locId];
+  const overlay=document.createElement("div"); overlay.className="modal-overlay";
+  const sheet=document.createElement("div"); sheet.className="modal-sheet";
+  overlay.onclick=e=>{ if(e.target===overlay) root.innerHTML=""; };
+
+  sheet.appendChild(html(`<div class="modal-handle"></div>`));
+  sheet.appendChild(html(`<div style="color:${loc.color};font-size:11px;letter-spacing:3px;text-transform:uppercase;margin-bottom:4px">${loc.icon} ${loc.name} · ${slot}</div>`));
+  sheet.appendChild(html(`<div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:800;color:var(--ink)">${wine.wine}</div>`));
+  sheet.appendChild(html(`<div style="color:var(--brown-light);font-size:14px;font-style:italic;margin-bottom:10px">${wine.winery}${wine.vintage?" · "+wine.vintage:""}</div>`));
+
+  const tags=document.createElement("div"); tags.style.cssText="display:flex;gap:7px;margin-bottom:12px;flex-wrap:wrap";
+  if(wine.color)   tags.appendChild(html(`<span class="pill" style="background:${colorDot(wine.color)}22;border-color:${colorDot(wine.color)}44;color:${colorDot(wine.color)}">${wine.color}</span>`));
+  if(wine.varietal)tags.appendChild(html(`<span class="pill">${wine.varietal}</span>`));
+  if(wine.score)   tags.appendChild(html(`<span class="pill" style="color:${scoreColor(wine.score)};font-weight:800">${wine.score}pts</span>`));
+  sheet.appendChild(tags);
+
+  if(wine.pairings?.length){
+    sheet.appendChild(html(`<div class="section-label">Pairs with</div>`));
+    const pWrap=document.createElement("div"); pWrap.style.cssText="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:14px";
+    wine.pairings.forEach(p=>pWrap.appendChild(html(`<span style="background:rgba(184,134,11,0.1);border-radius:10px;padding:3px 10px;color:var(--brown-mid);font-size:12px">${p}</span>`)));
+    sheet.appendChild(pWrap);
+  }
+
+  const btns=html(`<div style="display:flex;gap:8px;margin-top:6px"></div>`);
+  const close=html(`<button class="btn-ghost" style="flex:1">Close</button>`); close.onclick=()=>root.innerHTML="";
+  const profile=html(`<button style="flex:2;padding:12px;border-radius:var(--radius-sm);border:1px solid rgba(184,134,11,0.3);background:rgba(184,134,11,0.08);color:var(--gold);font-size:13px;font-weight:700;cursor:pointer;font-family:'Cormorant Garamond',serif">View Profile</button>`);
+  profile.onclick=()=>showWineProfile(wine);
+  const consume=html(`<button class="btn-danger" style="flex:2;padding:12px;font-size:13px">🍽 Consumed</button>`);
+  consume.onclick=async()=>{
+    const entry={...wine,locId,slot,consumedAt:Date.now()};
+    await clearSlot(locId,slot);
+    await saveConsumed(entry);
+    root.innerHTML="";
+  };
+  btns.appendChild(close); btns.appendChild(profile); btns.appendChild(consume);
+  sheet.appendChild(btns);
+
+  overlay.appendChild(sheet);
+  root.appendChild(overlay);
+}
+
+// ── Boot ─────────────────────────────────────────────────────────
+initPin();
+
+// Expose globals for inline handlers
+window.pinPress  = pinPress;
+window.pinDelete = pinDelete;
+window.switchTab = switchTab;
+
+</script>
+</body>
+</html>
