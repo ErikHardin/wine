@@ -1507,11 +1507,74 @@ function renderAddWineModal() {
     const multiScanBox=html(`<div style="background:rgba(184,134,11,0.04);border:2px dashed rgba(184,134,11,0.2);border-radius:16px;padding:20px;text-align:center;cursor:pointer;margin-bottom:12px">
       <div style="font-size:36px;margin-bottom:8px">📷📷</div>
       <div style="font-family:'Cormorant Garamond',serif;font-size:19px;font-weight:700;color:var(--gold);margin-bottom:4px">Scan Multiple Bottles</div>
-      <div style="color:var(--brown-mid);font-size:13px">Scan one bottle at a time.<br>Save each and scan the next.</div>
+      <div style="color:var(--brown-mid);font-size:13px">Take one photo with 2+ bottles.<br>Confirm each wine one by one.</div>
     </div>`);
     multiScanBox.onclick=()=>{
-      isMultiScan=true; scanQueueSaved=0; scanQueue=[];
-      startMultiScanCamera();
+      isMultiScan=false; scanQueue=[]; scanQueueIndex=0;
+      const inp=document.createElement("input"); inp.type="file"; inp.accept="image/*"; inp.capture="environment";
+      inp.onchange=async e=>{
+        const file=e.target.files[0]; if(!file) return;
+        const reader=new FileReader();
+        reader.onload=async ev=>{
+          addWineScanPreview=ev.target.result;
+          addWineScreen="scanning"; renderAddWineModal();
+          try {
+            const b64=ev.target.result.split(",")[1];
+            // /scan-multi returns { wines: [...] }
+            let winesList=null;
+            try {
+              const r=await fetch(`${WORKER_URL}/scan-multi`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({image:b64})});
+              if(r.ok){const d=await r.json(); if(Array.isArray(d.wines)&&d.wines.length) winesList=d.wines;}
+            } catch(_){}
+            // Fallback: single-bottle scan
+            if(!winesList){
+              const result=await scanLabel(b64);
+              if(result.error){addWineScanError="Couldn't read label — fill in manually."; addWineScreen="form"; renderAddWineModal(); return;}
+              winesList=[result];
+            }
+            // Build a form object for each detected wine
+            const mkForm=()=>({winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",score:"",drinkFrom:"",drinkTo:"",notes:"",_enrichNote:null,_pairings:null,_drinkWindow:null,_servingTip:null});
+            scanQueue=winesList.map(w=>{
+              const f=mkForm();
+              f.winery=w.winery||""; f.wine=w.wine||""; f.vintage=w.vintage||"";
+              f.varietal=w.varietal||""; f.region=w.region||"";
+              if(COLOR_OPTIONS.includes(w.color)) f.color=w.color;
+              return f;
+            });
+            scanQueueIndex=0;
+            // Enrich + pairings for each wine before showing confirm screens
+            for(let i=0;i<scanQueue.length;i++){
+              scanQueueIndex=i;
+              const q=scanQueue[i];
+              addWineScreen="enriching"; renderAddWineModal();
+              try {
+                const enriched=await enrichWineData(q.winery,q.wine,q.vintage);
+                if(!enriched.error){
+                  if(enriched.varietal&&!q.varietal) q.varietal=enriched.varietal;
+                  if(enriched.region&&!q.region) q.region=enriched.region;
+                  if(enriched.color&&COLOR_OPTIONS.includes(enriched.color)) q.color=enriched.color;
+                  if(enriched.score) q.score=String(enriched.score);
+                  if(enriched.avgPrice) q.price=String(enriched.avgPrice);
+                  if(enriched.drinkFrom) q.drinkFrom=String(enriched.drinkFrom);
+                  if(enriched.drinkTo) q.drinkTo=String(enriched.drinkTo);
+                  q._enrichNote=enriched.note||null;
+                }
+              } catch(_){}
+              addWineScreen="pairings"; renderAddWineModal();
+              try {
+                const pd=await callPairingsAPI(q.winery,q.wine,q.vintage,q.varietal,q.region);
+                if(pd.pairings){q._pairings=pd.pairings; q._drinkWindow=pd.drinkWindow||null; q._servingTip=pd.servingTip||null;}
+              } catch(_){}
+            }
+            // Show first confirmation screen
+            scanQueueIndex=0;
+            addWineForm={...scanQueue[0]};
+            addWineScreen="queue-form"; renderAddWineModal();
+          } catch(_){addWineScanError="Scan failed — fill in manually."; addWineScreen="form"; renderAddWineModal();}
+        };
+        reader.readAsDataURL(file);
+      };
+      inp.click();
     };
     sheet.appendChild(multiScanBox);
 
