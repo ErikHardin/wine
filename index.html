@@ -395,6 +395,8 @@ let wines      = {};   // { id: wineObj }
 let slots      = {};   // { fridge:{}, winefridge:{}, closet:{} }
 let consumed   = {};   // { id: consumedObj }
 let appPin     = null; // stored PIN
+const SESSION_KEY = "wine_session_ts";
+const SESSION_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days in ms
 let currentTab = "cellar";
 let nextId     = Date.now();
 
@@ -840,6 +842,12 @@ let pinEntry = "";
 let pinMode  = "check"; // "check" | "set"
 
 async function initPin() {
+  const cached = localStorage.getItem(SESSION_KEY);
+  if (cached && (Date.now() - Number(cached)) < SESSION_TTL) {
+    unlockApp();
+    return;
+  }
+
   const snap = await get(ref(db,"config/pin"));
   if (snap.exists()) {
     appPin  = snap.val();
@@ -897,6 +905,7 @@ function unlockApp() {
   el("pin-screen").style.display="none";
   el("app").style.display="block";
   initFirebase();
+  localStorage.setItem(SESSION_KEY, Date.now().toString());
   render();
 }
 
