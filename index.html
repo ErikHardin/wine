@@ -319,7 +319,7 @@
 
   /* ── Misc ── */
   .section-label {
-    color: var(--brown-mid); font-size: 14px; letter-spacing: 2.5px;
+    color: var(--brown-mid); font-size: 16px; letter-spacing: 2px;
     text-transform: uppercase; margin-bottom: 8px;
     font-family: 'Cormorant Garamond', serif;
   }
@@ -1254,7 +1254,7 @@ function renderCellarTab() {
     for (let r=1;r<=rowCount;r++) {
       const rowSlots = isCloset ? secSlots.filter(s=>s.includes(`-R${r}-`)) : secSlots;
       const grid = document.createElement("div");
-      grid.style.cssText=`display:grid;grid-template-columns:repeat(${colCount},1fr);gap:4px;margin-bottom:${rowCount>1?"4px":"0"}`;
+      grid.style.cssText=`display:grid;grid-template-columns:repeat(${colCount},1fr);gap:2px;margin-bottom:${rowCount>1?"2px":"0"}`;
       rowSlots.forEach(slot=>{
         const wineId = locSlots[slot];
         const wine   = wineId ? wines[wineId] : null;
@@ -1262,7 +1262,7 @@ function renderCellarTab() {
         const s = document.createElement("div");
         s.className = `slot${wine?" occupied":""}`;
         if (wine) { s.style.borderColor=loc.color+"66"; s.style.color=loc.color; }
-        s.innerHTML = (wine ? `<div style="font-size:10px">🍷</div>` : "") + `<div style="font-size:${wine?"8":"9"}px;line-height:1">${slotNum}</div>`;
+        s.innerHTML = (wine ? `<div style="font-size:14px;line-height:1">🍷</div>` : "") + `<div style="font-size:${wine?"10":"12"}px;line-height:1.2">${slotNum}</div>`;
         if (wine) s.onclick=()=>showSlotDetail(cellarActiveLoc,slot,wine);
         grid.appendChild(s);
       });
