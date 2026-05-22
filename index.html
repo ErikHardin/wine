@@ -399,6 +399,8 @@ const SESSION_KEY = "wine_session_ts";
 const SESSION_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days in ms
 let currentTab = "cellar";
 let nextId     = Date.now();
+let trips      = {};   // { id: tripObj }
+let activeTrip = "";   // selected trip id on trip tab, or "" = All
 
 // ── Locations ────────────────────────────────────────────────────
 const LOCATIONS = (() => {
@@ -532,6 +534,7 @@ function initFirebase() {
   onValue(ref(db,"wines"),   snap=>{ wines   =snap.val()||{}; render(); });
   onValue(ref(db,"slots"),   snap=>{ slots   =snap.val()||{}; render(); });
   onValue(ref(db,"consumed"),snap=>{ consumed=snap.val()||{}; render(); });
+  onValue(ref(db,"trips"),   snap=>{ trips   =snap.val()||{}; render(); });
 }
 
 async function saveWine(wine) {
@@ -551,6 +554,9 @@ async function clearSlot(locId, slot) {
 }
 async function saveConsumed(entry) {
   await set(ref(db,`consumed/${entry.id}`), entry);
+}
+async function saveTrip(trip) {
+  await set(ref(db,`trips/${trip.id}`), trip);
 }
 
 // ── Worker calls ─────────────────────────────────────────────────
@@ -952,12 +958,120 @@ function renderTab() {
 }
 
 // ── TRIP TAB ─────────────────────────────────────────────────────
+function showCreateTripModal() {
+  const root = document.getElementById("modal-root"); root.innerHTML = "";
+  const overlay = document.createElement("div"); overlay.className = "modal-overlay";
+  const sheet   = document.createElement("div"); sheet.className   = "modal-sheet";
+  overlay.onclick = e => { if (e.target === overlay) root.innerHTML = ""; };
+  sheet.appendChild(html(`<div class="modal-handle"></div>`));
+
+  const closeBtn = html(`<button style="position:absolute;top:16px;right:16px;background:none;border:none;cursor:pointer;font-size:20px;color:var(--brown-mid);line-height:1;padding:4px">✕</button>`);
+  closeBtn.onclick = () => root.innerHTML = "";
+  sheet.appendChild(closeBtn);
+
+  sheet.appendChild(html(`<div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:800;color:var(--ink);margin-bottom:6px">New Shopping Trip</div>`));
+  sheet.appendChild(html(`<div style="color:var(--brown-mid);font-size:14px;margin-bottom:20px">Name this trip and set how many bottles you plan to buy.</div>`));
+
+  const form = document.createElement("div");
+  form.style.cssText = "display:flex;flex-direction:column;gap:13px";
+
+  const nameWrap = document.createElement("div");
+  nameWrap.appendChild(html(`<div class="field-label">Trip Name *</div>`));
+  const nameInp = document.createElement("input"); nameInp.placeholder = "e.g. Costco Run · May 2026";
+  nameWrap.appendChild(nameInp); form.appendChild(nameWrap);
+
+  const capWrap = document.createElement("div");
+  capWrap.appendChild(html(`<div class="field-label">Bottle Capacity</div>`));
+  const capInp = document.createElement("input"); capInp.placeholder = "12"; capInp.inputMode = "numeric";
+  capWrap.appendChild(capInp); form.appendChild(capWrap);
+
+  sheet.appendChild(form);
+
+  const actions = html(`<div style="display:flex;gap:10px;margin-top:20px"></div>`);
+  const cancel  = html(`<button class="btn-ghost" style="flex:1">Cancel</button>`);
+  cancel.onclick = () => root.innerHTML = "";
+  const create  = html(`<button class="btn-primary" style="flex:2">Create Trip</button>`);
+  create.onclick = async () => {
+    const name = nameInp.value.trim();
+    if (!name) { alert("Trip name is required."); return; }
+    const trip = { id:`t_${Date.now()}`, name, capacity:parseInt(capInp.value)||0, createdAt:Date.now() };
+    create.textContent = "Creating…"; create.disabled = true;
+    await saveTrip(trip);
+    activeTrip = trip.id;
+    root.innerHTML = "";
+  };
+  actions.appendChild(cancel); actions.appendChild(create);
+  sheet.appendChild(actions);
+  overlay.appendChild(sheet); root.appendChild(overlay);
+}
+
+function renderTripSelectorField(form) {
+  const tripList = Object.values(trips).sort((a,b) => b.createdAt - a.createdAt);
+  if (tripList.length === 0) return;
+  const wrap = document.createElement("div");
+  wrap.appendChild(html(`<div class="field-label">Shopping Trip</div>`));
+  const sel = document.createElement("select");
+  sel.appendChild(html(`<option value="">— None —</option>`));
+  tripList.forEach(t => {
+    const opt = document.createElement("option");
+    opt.value = t.id; opt.textContent = t.name;
+    if (t.id === (addWineForm._tripId !== undefined ? addWineForm._tripId : activeTrip)) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  sel.onchange = e => {
+    addWineForm._tripId = e.target.value;
+    if (scanQueue[scanQueueIndex]) scanQueue[scanQueueIndex]._tripId = e.target.value;
+  };
+  addWineForm._tripId = sel.value;
+  wrap.appendChild(sel); form.appendChild(wrap);
+}
+
 function renderTripTab() {
   const stored = storedWineIds();
-  const unassigned = Object.values(wines).filter(w=>!stored.has(w.id));
   const frag = document.createDocumentFragment();
 
+  // Guard: reset activeTrip if it points to a deleted trip
+  if (activeTrip && !trips[activeTrip]) activeTrip = "";
+
+  // Trip control row
+  const tripRow = document.createElement("div");
+  tripRow.style.cssText = "display:flex;gap:8px;align-items:center;margin-bottom:14px";
+  const tripSel = document.createElement("select"); tripSel.style.cssText = "flex:1";
+  tripSel.appendChild(html(`<option value="">All Trips</option>`));
+  Object.values(trips).sort((a,b) => b.createdAt - a.createdAt).forEach(t => {
+    const opt = document.createElement("option");
+    opt.value = t.id; opt.textContent = t.name;
+    if (t.id === activeTrip) opt.selected = true;
+    tripSel.appendChild(opt);
+  });
+  tripSel.onchange = e => { activeTrip = e.target.value; renderTab(); };
+  tripRow.appendChild(tripSel);
+  const newTripBtn = html(`<button class="btn-ghost" style="width:auto;padding:10px 14px;font-size:18px;flex-shrink:0">+</button>`);
+  newTripBtn.onclick = () => showCreateTripModal();
+  tripRow.appendChild(newTripBtn);
+  frag.appendChild(tripRow);
+
+  // Capacity bar (only when a specific trip with capacity is selected)
+  const trip = activeTrip ? trips[activeTrip] : null;
+  if (trip && trip.capacity > 0) {
+    const tripWines = Object.values(wines).filter(w => w.tripId === activeTrip);
+    const used = tripWines.reduce((s, w) => s + (parseInt(w.qty) || 1), 0);
+    const pct  = Math.min(100, Math.round(used / trip.capacity * 100));
+    frag.appendChild(html(`<div style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
+        <span style="color:var(--brown-mid);font-size:12px">${used} of ${trip.capacity} bottles planned</span>
+        <span style="font-family:'Cormorant Garamond',serif;font-size:13px;font-weight:700;color:var(--gold)">${pct}%</span>
+      </div>
+      <div class="drink-bar"><div class="drink-bar-fill" style="width:${pct}%;background:var(--gold)"></div></div>
+    </div>`));
+  }
+
   // Header row
+  const unassigned = Object.values(wines).filter(w => {
+    if (stored.has(w.id)) return false;
+    if (activeTrip) return w.tripId === activeTrip;
+    return true;
+  });
   const hdr = html(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
     <div class="section-label">${unassigned.length} wine${unassigned.length!==1?"s":""} to store</div>
   </div>`);
@@ -976,10 +1090,13 @@ function renderTripTab() {
   }
 
   if (unassigned.length===0) {
+    const msg = activeTrip
+      ? `<div class="sub">No wines in this trip yet.<br>Tap <strong>+ Add Wine</strong> to add some.</div>`
+      : `<div class="sub">Check the Cellar Map or Find a Bottle.</div>`;
     frag.appendChild(html(`<div class="empty-state">
       <div class="icon">✅</div>
-      <div class="title" style="color:#5a8a3a">All bottles stored!</div>
-      <div class="sub">Check the Cellar Map or Find a Bottle.</div>
+      <div class="title" style="color:#5a8a3a">${activeTrip ? "No wines in trip" : "All bottles stored!"}</div>
+      ${msg}
     </div>`));
     return frag;
   }
@@ -1105,7 +1222,7 @@ function renderCellarTab() {
 }
 
 // ── FIND TAB ─────────────────────────────────────────────────────
-let findFilters = {color:"",varietal:"",region:"",vintageFrom:"",vintageTo:"",priceMin:"",priceMax:"",scoreMin:"",readyNow:false,food:""};
+let findFilters = {color:"",varietal:"",region:"",vintageFrom:"",vintageTo:"",priceMin:"",priceMax:"",scoreMin:"",readyNow:false,food:"",trip:""};
 let findQuery = "";
 
 function filterWines(storedWines) {
@@ -1121,6 +1238,7 @@ function filterWines(storedWines) {
     if(findFilters.scoreMin && (w.score||0)<parseInt(findFilters.scoreMin)) return false;
     if(findFilters.readyNow){ const s=drinkStatus(w); if(!s||!s.label.includes("Peak")) return false; }
     if(findFilters.food && !matchesFood(w,findFilters.food)) return false;
+    if(findFilters.trip && w.tripId !== findFilters.trip) return false;
     return true;
   });
 }
@@ -1189,7 +1307,7 @@ function renderFilterPanel(storedWines, storedIds) {
     findFilters.color,findFilters.varietal,findFilters.region,
     findFilters.vintageFrom||findFilters.vintageTo,
     findFilters.priceMin||findFilters.priceMax,
-    findFilters.scoreMin,findFilters.readyNow,findFilters.food,
+    findFilters.scoreMin,findFilters.readyNow,findFilters.food,findFilters.trip,
   ].filter(Boolean).length;
 
   const wrap = document.createElement("div");
@@ -1207,7 +1325,7 @@ function renderFilterPanel(storedWines, storedIds) {
 
   if (activeCount>0) {
     const clr=html(`<button style="padding:10px 12px;border-radius:10px;border:1px solid rgba(139,38,53,0.2);background:rgba(139,38,53,0.06);color:var(--red-wine);font-size:12px;cursor:pointer;font-family:inherit">Clear</button>`);
-    clr.onclick=()=>{ findFilters={color:"",varietal:"",region:"",vintageFrom:"",vintageTo:"",priceMin:"",priceMax:"",scoreMin:"",readyNow:false,food:""}; renderTab(); };
+    clr.onclick=()=>{ findFilters={color:"",varietal:"",region:"",vintageFrom:"",vintageTo:"",priceMin:"",priceMax:"",scoreMin:"",readyNow:false,food:"",trip:""}; renderTab(); };
     hdr.appendChild(clr);
   }
   wrap.appendChild(hdr);
@@ -1288,6 +1406,18 @@ function renderFilterPanel(storedWines, storedIds) {
     scoreSec.querySelector("div:last-child").appendChild(btn);
   });
   panel.appendChild(scoreSec);
+
+  // Trip filter
+  const tripList = Object.values(trips).sort((a,b) => b.createdAt - a.createdAt);
+  if (tripList.length > 0) {
+    panel.appendChild(html(`<div class="divider"></div>`));
+    const tripSec = html(`<div><div class="section-label">Shopping Trip</div></div>`);
+    const tSel = document.createElement("select");
+    tSel.innerHTML = `<option value="">Any trip</option>` +
+      tripList.map(t => `<option value="${t.id}"${findFilters.trip===t.id?" selected":""}>${t.name}</option>`).join("");
+    tSel.onchange = e => { findFilters.trip = e.target.value; refreshFindResults(); };
+    tripSec.appendChild(tSel); panel.appendChild(tripSec);
+  }
 
   // Ready now
   const rdy=html(`<button style="padding:10px 14px;border-radius:10px;border:1px solid ${findFilters.readyNow?"#5a8a3a":"var(--border)"};background:${findFilters.readyNow?"rgba(90,138,58,0.1)":"transparent"};color:${findFilters.readyNow?"#5a8a3a":"var(--brown-mid)"};font-size:13px;cursor:pointer;font-family:'Crimson Pro',serif;text-align:left;width:100%">
@@ -1381,7 +1511,7 @@ let scanQueueSaved = 0;      // bottles saved so far in this multi-scan session
 
 function showAddWineModal() {
   addWineScreen     = "choose";
-  addWineForm       = {winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",score:"",drinkFrom:"",drinkTo:"",notes:"",_enrichNote:null,_pairings:null,_drinkWindow:null,_servingTip:null};
+  addWineForm       = {winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",score:"",drinkFrom:"",drinkTo:"",notes:"",_enrichNote:null,_pairings:null,_drinkWindow:null,_servingTip:null,_tripId:activeTrip||""};
   addWineScanPreview= null;
   addWineScanError  = null;
   scanQueue         = [];
@@ -1393,7 +1523,7 @@ function showAddWineModal() {
 
 // Sequential single-bottle scanner used by "Scan Multiple Bottles"
 function startMultiScanCamera() {
-  addWineForm={winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",score:"",drinkFrom:"",drinkTo:"",notes:"",_enrichNote:null,_pairings:null,_drinkWindow:null,_servingTip:null};
+  addWineForm={winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",score:"",drinkFrom:"",drinkTo:"",notes:"",_enrichNote:null,_pairings:null,_drinkWindow:null,_servingTip:null,_tripId:activeTrip||""};
   addWineScanPreview=null; addWineScanError=null;
   const inp=document.createElement("input"); inp.type="file"; inp.accept="image/*"; inp.capture="environment";
   inp.onchange=async e=>{
@@ -1546,7 +1676,7 @@ function renderAddWineModal() {
               winesList=[result];
             }
             // Build a form object for each detected wine
-            const mkForm=()=>({winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",score:"",drinkFrom:"",drinkTo:"",notes:"",_enrichNote:null,_pairings:null,_drinkWindow:null,_servingTip:null});
+            const mkForm=()=>({winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",score:"",drinkFrom:"",drinkTo:"",notes:"",_enrichNote:null,_pairings:null,_drinkWindow:null,_servingTip:null,_tripId:activeTrip||""});
             scanQueue=winesList.map(w=>{
               const f=mkForm();
               f.winery=w.winery||""; f.wine=w.wine||""; f.vintage=w.vintage||"";
@@ -1741,6 +1871,9 @@ function renderAddWineModal() {
     ta.oninput=e=>addWineForm.notes=e.target.value;
     notesWrap.appendChild(ta); form.appendChild(notesWrap);
 
+    // Trip selector
+    renderTripSelectorField(form);
+
     // Food pairings preview (pre-fetched during scan)
     if(addWineForm._pairings?.length) {
       const pairWrap=document.createElement("div");
@@ -1779,6 +1912,7 @@ function renderAddWineModal() {
         drinkFrom:parseInt(addWineForm.drinkFrom)||null,
         drinkTo:  parseInt(addWineForm.drinkTo)||null,
         notes:   addWineForm.notes.trim(),
+        tripId:  addWineForm._tripId||null,
         pairings:    addWineForm._pairings    ||null,
         drinkWindow: addWineForm._drinkWindow ||null,
         servingTip:  addWineForm._servingTip  ||null,
@@ -1903,6 +2037,8 @@ function renderAddWineModal() {
     const ta=document.createElement("textarea"); ta.placeholder="Dark fruit, hints of oak…"; ta.value=addWineForm.notes;
     ta.oninput=e=>{ addWineForm.notes=e.target.value; if(scanQueue[scanQueueIndex]) scanQueue[scanQueueIndex].notes=e.target.value; };
     notesWrap.appendChild(ta); form.appendChild(notesWrap);
+    // Trip selector
+    renderTripSelectorField(form);
     // Pairings preview
     if(addWineForm._pairings?.length){
       const pairWrap=document.createElement("div");
@@ -1927,6 +2063,7 @@ function renderAddWineModal() {
       score:parseInt(addWineForm.score)||null,
       drinkFrom:parseInt(addWineForm.drinkFrom)||null, drinkTo:parseInt(addWineForm.drinkTo)||null,
       notes:addWineForm.notes.trim(),
+      tripId:addWineForm._tripId||null,
       pairings:addWineForm._pairings||null, drinkWindow:addWineForm._drinkWindow||null,
       servingTip:addWineForm._servingTip||null,
       pairingsAt:addWineForm._pairings?Date.now():null, createdAt:Date.now(),
