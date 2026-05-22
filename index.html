@@ -357,7 +357,7 @@
       <button class="tab-btn" onclick="switchTab('trip')" id="tab-trip">🧳 Trip</button>
       <button class="tab-btn active" onclick="switchTab('cellar')" id="tab-cellar">🗂 Cellar</button>
       <button class="tab-btn" onclick="switchTab('find')" id="tab-find">🔍 Find</button>
-      <button class="tab-btn" onclick="switchTab('consumed')" id="tab-consumed">🥂 Consumed</button>
+      <button class="tab-btn" onclick="switchTab('consumed')" id="tab-consumed">🍷 Consumed</button>
     </div>
     <div id="tab-content"></div>
   </div>
@@ -924,7 +924,7 @@ function renderHeaderBadges() {
 
 function updateTabLabels() {
   const consumedCount = Object.keys(consumed).length;
-  el("tab-consumed").textContent = `🥂 ${consumedCount>0?consumedCount:"Consumed"}`;
+  el("tab-consumed").textContent = `🍷 ${consumedCount>0?consumedCount:"Consumed"}`;
 }
 
 function switchTab(tab) {
@@ -1079,26 +1079,8 @@ function renderCellarTab() {
 let findFilters = {color:"",varietal:"",region:"",vintageFrom:"",vintageTo:"",priceMin:"",priceMax:"",scoreMin:"",readyNow:false,food:""};
 let findQuery = "";
 
-function renderFindTab() {
-  const frag = document.createDocumentFragment();
-  const stored = storedWineIds();
-  const storedWines = Object.values(wines).filter(w=>stored.has(w.id));
-
-  // Filter panel
-  frag.appendChild(renderFilterPanel(storedWines, stored));
-
-  // Search
-  const searchWrap = document.createElement("div");
-  searchWrap.style.marginBottom="12px";
-  const inp = document.createElement("input");
-  inp.placeholder="Search by name, winery, region…";
-  inp.value=findQuery;
-  inp.oninput=e=>{ findQuery=e.target.value; renderTab(); };
-  searchWrap.appendChild(inp);
-  frag.appendChild(searchWrap);
-
-  // Filter + search
-  const filtered = storedWines.filter(w=>{
+function filterWines(storedWines) {
+  return storedWines.filter(w=>{
     if(findQuery && !`${w.winery} ${w.wine} ${w.vintage} ${w.varietal} ${w.region}`.toLowerCase().includes(findQuery.toLowerCase())) return false;
     if(findFilters.color    && w.color!==findFilters.color) return false;
     if(findFilters.varietal && w.varietal!==findFilters.varietal) return false;
@@ -1112,22 +1094,62 @@ function renderFindTab() {
     if(findFilters.food && !matchesFood(w,findFilters.food)) return false;
     return true;
   });
+}
 
+function refreshFindResults() {
+  const container = document.getElementById("find-results-list");
+  if (!container) { renderTab(); return; }
+  container.innerHTML = "";
+  const stored = storedWineIds();
+  const storedWines = Object.values(wines).filter(w=>stored.has(w.id));
+  const filtered = filterWines(storedWines);
   const hasFilter = Object.values(findFilters).some(Boolean)||findQuery;
-  frag.appendChild(html(`<div style="color:var(--brown-pale);font-size:12px;margin-bottom:12px">${filtered.length} wine${filtered.length!==1?"s":""} ${hasFilter?"matching":"in cellar"}</div>`));
-
+  container.appendChild(html(`<div style="color:var(--brown-pale);font-size:12px;margin-bottom:12px">${filtered.length} wine${filtered.length!==1?"s":""} ${hasFilter?"matching":"in cellar"}</div>`));
   if (storedWines.length===0) {
-    frag.appendChild(html(`<div class="empty-state"><div class="icon">📍</div><div class="title">No wines stored yet</div></div>`));
+    container.appendChild(html(`<div class="empty-state"><div class="icon">📍</div><div class="title">No wines stored yet</div></div>`));
   } else if (filtered.length===0) {
     const empty = html(`<div class="empty-state"><div class="icon">🔍</div><div class="title">No wines match</div></div>`);
     if(findFilters.food) empty.appendChild(html(`<div class="sub">Get AI pairings on more wine profiles to improve food matching.</div>`));
-    frag.appendChild(empty);
+    container.appendChild(empty);
   } else {
-    filtered.forEach(wine=>{
-      const placement=findPlacement(wine.id);
-      frag.appendChild(renderFindCard(wine,placement));
-    });
+    filtered.forEach(wine=>{ container.appendChild(renderFindCard(wine,findPlacement(wine.id))); });
   }
+}
+
+function renderFindTab() {
+  const frag = document.createDocumentFragment();
+  const stored = storedWineIds();
+  const storedWines = Object.values(wines).filter(w=>stored.has(w.id));
+
+  // Filter panel
+  frag.appendChild(renderFilterPanel(storedWines, stored));
+
+  // Search — oninput only re-renders the results list, preserving focus
+  const searchWrap = document.createElement("div");
+  searchWrap.style.marginBottom="12px";
+  const inp = document.createElement("input");
+  inp.placeholder="Search by name, winery, region…";
+  inp.value=findQuery;
+  inp.oninput=e=>{ findQuery=e.target.value; refreshFindResults(); };
+  searchWrap.appendChild(inp);
+  frag.appendChild(searchWrap);
+
+  // Results container (only this part re-renders on text input)
+  const resultsList = document.createElement("div");
+  resultsList.id = "find-results-list";
+  const filtered = filterWines(storedWines);
+  const hasFilter = Object.values(findFilters).some(Boolean)||findQuery;
+  resultsList.appendChild(html(`<div style="color:var(--brown-pale);font-size:12px;margin-bottom:12px">${filtered.length} wine${filtered.length!==1?"s":""} ${hasFilter?"matching":"in cellar"}</div>`));
+  if (storedWines.length===0) {
+    resultsList.appendChild(html(`<div class="empty-state"><div class="icon">📍</div><div class="title">No wines stored yet</div></div>`));
+  } else if (filtered.length===0) {
+    const empty = html(`<div class="empty-state"><div class="icon">🔍</div><div class="title">No wines match</div></div>`);
+    if(findFilters.food) empty.appendChild(html(`<div class="sub">Get AI pairings on more wine profiles to improve food matching.</div>`));
+    resultsList.appendChild(empty);
+  } else {
+    filtered.forEach(wine=>{ resultsList.appendChild(renderFindCard(wine,findPlacement(wine.id))); });
+  }
+  frag.appendChild(resultsList);
   return frag;
 }
 
@@ -1209,23 +1231,23 @@ function renderFilterPanel(storedWines, storedIds) {
   // Region
   const regSec=html(`<div><div class="section-label">Region</div></div>`);
   const ri=document.createElement("input"); ri.placeholder="e.g. Napa Valley"; ri.value=findFilters.region;
-  ri.oninput=e=>{ findFilters.region=e.target.value; renderTab(); };
+  ri.oninput=e=>{ findFilters.region=e.target.value; refreshFindResults(); };
   regSec.appendChild(ri); panel.appendChild(regSec);
 
   // Vintage
   const vinSec=html(`<div><div class="section-label">Vintage Year</div><div style="display:flex;gap:8px"></div></div>`);
   const vf=document.createElement("input"); vf.placeholder="From"; vf.inputMode="numeric"; vf.maxLength=4; vf.value=findFilters.vintageFrom;
   const vt=document.createElement("input"); vt.placeholder="To";   vt.inputMode="numeric"; vt.maxLength=4; vt.value=findFilters.vintageTo;
-  vf.oninput=e=>{ findFilters.vintageFrom=e.target.value.replace(/\D/g,""); renderTab(); };
-  vt.oninput=e=>{ findFilters.vintageTo  =e.target.value.replace(/\D/g,""); renderTab(); };
+  vf.oninput=e=>{ findFilters.vintageFrom=e.target.value.replace(/\D/g,""); refreshFindResults(); };
+  vt.oninput=e=>{ findFilters.vintageTo  =e.target.value.replace(/\D/g,""); refreshFindResults(); };
   vinSec.querySelector("div:last-child").append(vf,vt); panel.appendChild(vinSec);
 
   // Price
   const priceSec=html(`<div><div class="section-label">Price Per Bottle ($)</div><div style="display:flex;gap:8px"></div></div>`);
   const pn=document.createElement("input"); pn.placeholder="Min"; pn.inputMode="numeric"; pn.value=findFilters.priceMin;
   const px=document.createElement("input"); px.placeholder="Max"; px.inputMode="numeric"; px.value=findFilters.priceMax;
-  pn.oninput=e=>{ findFilters.priceMin=e.target.value.replace(/\D/g,""); renderTab(); };
-  px.oninput=e=>{ findFilters.priceMax=e.target.value.replace(/\D/g,""); renderTab(); };
+  pn.oninput=e=>{ findFilters.priceMin=e.target.value.replace(/\D/g,""); refreshFindResults(); };
+  px.oninput=e=>{ findFilters.priceMax=e.target.value.replace(/\D/g,""); refreshFindResults(); };
   priceSec.querySelector("div:last-child").append(pn,px); panel.appendChild(priceSec);
 
   // Score
@@ -1284,22 +1306,9 @@ function renderFindCard(wine, placement) {
 function renderConsumedTab() {
   const frag    = document.createDocumentFragment();
   const entries = Object.values(consumed).sort((a,b)=>b.consumedAt-a.consumedAt);
-  const total   = entries.reduce((s,c)=>s+(c.price||0),0);
-
-  const stats = html(`<div style="display:flex;gap:10px;margin-bottom:20px">
-    <div class="card" style="flex:1;text-align:center;padding:12px 8px">
-      <div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:800;color:var(--gold)">${entries.length}</div>
-      <div style="color:var(--brown-pale);font-size:11px">Bottles</div>
-    </div>
-    <div class="card" style="flex:1;text-align:center;padding:12px 8px">
-      <div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:800;color:var(--red-wine)">$${total.toFixed(0)}</div>
-      <div style="color:var(--brown-pale);font-size:11px">Total Value</div>
-    </div>
-  </div>`);
-  frag.appendChild(stats);
 
   if (entries.length===0) {
-    frag.appendChild(html(`<div class="empty-state"><div class="icon">🥂</div><div class="title">Nothing consumed yet</div><div class="sub">Mark bottles as consumed from Find a Bottle.</div></div>`));
+    frag.appendChild(html(`<div class="empty-state"><div class="icon">🍷</div><div class="title">Nothing consumed yet</div><div class="sub">Mark bottles as consumed from Find a Bottle.</div></div>`));
     return frag;
   }
 
@@ -1967,6 +1976,12 @@ function showWineProfile(wine) {
 
   sheet.appendChild(html(`<div class="modal-handle"></div>`));
 
+  // Close button row
+  const closeRow=document.createElement("div"); closeRow.style.cssText="display:flex;justify-content:flex-end;margin-bottom:4px";
+  const closeBtn=html(`<button style="background:none;border:none;font-size:22px;color:var(--brown-pale);cursor:pointer;padding:0;line-height:1">×</button>`);
+  closeBtn.onclick=()=>root.innerHTML="";
+  closeRow.appendChild(closeBtn); sheet.appendChild(closeRow);
+
   // Title
   sheet.appendChild(html(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:5px">
     <div class="color-dot" style="background:${colorDot(wine.color)}"></div>
@@ -2047,7 +2062,7 @@ function showWineProfile(wine) {
 
   // Consume button
   if(placement){
-    const consumeBtn=html(`<button class="btn-danger">🍽 Mark as Consumed</button>`);
+    const consumeBtn=html(`<button class="btn-danger">🍷 Mark as Consumed</button>`);
     consumeBtn.onclick=async()=>{
       const entry={...wine,locId:placement.locId,slot:placement.slot,consumedAt:Date.now()};
       await clearSlot(placement.locId,placement.slot);
@@ -2091,7 +2106,7 @@ function showSlotDetail(locId,slot,wine){
   const close=html(`<button class="btn-ghost" style="flex:1">Close</button>`); close.onclick=()=>root.innerHTML="";
   const profile=html(`<button style="flex:2;padding:12px;border-radius:var(--radius-sm);border:1px solid rgba(184,134,11,0.3);background:rgba(184,134,11,0.08);color:var(--gold);font-size:13px;font-weight:700;cursor:pointer;font-family:'Cormorant Garamond',serif">View Profile</button>`);
   profile.onclick=()=>showWineProfile(wine);
-  const consume=html(`<button class="btn-danger" style="flex:2;padding:12px;font-size:13px">🍽 Consumed</button>`);
+  const consume=html(`<button class="btn-danger" style="flex:2;padding:12px;font-size:13px">🍷 Consumed</button>`);
   consume.onclick=async()=>{
     const entry={...wine,locId,slot,consumedAt:Date.now()};
     await clearSlot(locId,slot);
