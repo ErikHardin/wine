@@ -745,19 +745,20 @@ function renderImportModal() {
       importScreen="importing"; renderImportModal();
       const setProgress=t=>{ const p=document.getElementById("import-progress"); if(p) p.textContent=t; };
       const pending={};
-      // Phase 1: save wines + assign slots
+      // Phase 1: save wines + assign slots atomically so located wines never flash in the trip tab
       let count=0;
       for(const w of importRows){
         w.id=String(nextId++);
-        await saveWine(w);
+        const writes={[`wines/${w.id}`]:w};
         if(w._loc){
           const slot=findImportSlot(w._loc.locId,w._loc.slotHint,pending);
           if(slot){
-            await saveSlot(w._loc.locId,slot,w.id);
+            writes[`slots/${w._loc.locId}/${slot}`]=w.id;
             if(!pending[w._loc.locId]) pending[w._loc.locId]={};
             pending[w._loc.locId][slot]=true;
           }
         }
+        await update(ref(db),writes);
         count++;
         setProgress(`Saving wines… ${count} / ${importRows.length}`);
       }
