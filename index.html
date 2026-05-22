@@ -1453,6 +1453,7 @@ function renderFindCard(wine, placement) {
         <div style="display:flex;gap:8px;margin-top:7px;flex-wrap:wrap;align-items:center">
           ${wine.varietal?`<span style="color:var(--brown-pale);font-size:11px">${wine.varietal}</span>`:""}
           ${wine.score?`<span style="color:${scoreColor(wine.score)};font-size:11px;font-weight:700">${wine.score}pts</span>`:""}
+          ${wine.price>0?`<span style="color:var(--brown-mid);font-size:11px">$${wine.price}/btl</span>`:""}
           ${status?`<span style="color:${status.color};font-size:11px">${status.emoji} ${status.label.split("·")[0].trim()}</span>`:""}
         </div>
         ${wine.pairings?.length?`<div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap">
@@ -2500,6 +2501,7 @@ function showSlotDetail(locId,slot,wine){
   if(wine.color)   tags.appendChild(html(`<span class="pill" style="background:${colorDot(wine.color)}22;border-color:${colorDot(wine.color)}44;color:${colorDot(wine.color)}">${wine.color}</span>`));
   if(wine.varietal)tags.appendChild(html(`<span class="pill">${wine.varietal}</span>`));
   if(wine.score)   tags.appendChild(html(`<span class="pill" style="color:${scoreColor(wine.score)};font-weight:800">${wine.score}pts</span>`));
+  if(wine.price>0) tags.appendChild(html(`<span class="pill" style="color:var(--brown-mid)">$${wine.price}/btl</span>`));
   sheet.appendChild(tags);
 
   if(wine.pairings?.length){
