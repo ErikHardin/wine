@@ -626,11 +626,25 @@ function locHintLabel(loc) {
   return "";
 }
 
+function splitCSVLine(line, sep) {
+  if(sep==="\t") return line.split("\t").map(c=>c.trim().replace(/^"|"$/g,""));
+  // Proper quoted-field parser for comma-separated CSV
+  const cells=[]; let cur="", inQ=false;
+  for(let i=0;i<line.length;i++){
+    const c=line[i];
+    if(c==='"'){ if(inQ&&line[i+1]==='"'){cur+='"';i++;}else inQ=!inQ; }
+    else if(c===","&&!inQ){ cells.push(cur.trim()); cur=""; }
+    else cur+=c;
+  }
+  cells.push(cur.trim());
+  return cells;
+}
+
 function parseWineCSV(text) {
   const sep = text.includes("\t") ? "\t" : ",";
   const lines = text.trim().split(/\r?\n/);
   if (lines.length < 2) return [];
-  const headers = lines[0].split(sep).map(h => h.trim().replace(/^"|"$/g,""));
+  const headers = splitCSVLine(lines[0], sep);
   const idx = k => headers.findIndex(h => h.toLowerCase() === k.toLowerCase());
   const colMap = {
     wine:      idx("Wine Name"),
@@ -651,21 +665,23 @@ function parseWineCSV(text) {
     if(v==="red") return "Red";
     if(v==="white") return "White";
     if(v==="rosé"||v==="rose") return "Rosé";
-    if(v==="sparkling"||v==="champagne"||v==="prosecco") return "Sparkling";
+    if(v==="sparkling"||v==="champagne"||v==="prosecco"||v==="dessert") return "Sparkling";
     return "Red";
   };
   const parseAddedDate = s => {
     if(!s) return Date.now();
-    const m=s.match(/(\d+)\/(\d+)\/(\d+)/);
-    if(!m) return Date.now();
-    let [,mo,d,yr]=m.map(Number);
-    if(yr<100) yr+=2000;
-    return new Date(yr,mo-1,d).getTime();
+    // ISO: 2026-01-03 or 2026-01-03 18:57
+    const iso=s.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if(iso) return new Date(parseInt(iso[1]),parseInt(iso[2])-1,parseInt(iso[3])).getTime();
+    // M/D/YY: 1/3/26
+    const mdy=s.match(/(\d+)\/(\d+)\/(\d+)/);
+    if(mdy){ let[,mo,d,yr]=mdy.map(Number); if(yr<100)yr+=2000; return new Date(yr,mo-1,d).getTime(); }
+    return Date.now();
   };
-  const get=(cells,i)=>i>=0&&i<cells.length?cells[i].trim().replace(/^"|"$/g,""):"";
+  const get=(cells,i)=>i>=0&&i<cells.length?cells[i]:"";
   const results=[];
   for(let i=1;i<lines.length;i++){
-    const cells=lines[i].split(sep);
+    const cells=splitCSVLine(lines[i], sep);
     const wineName=get(cells,colMap.wine);
     if(!wineName) continue;
     results.push({
@@ -749,13 +765,14 @@ function renderImportModal() {
       let count=0;
       for(const w of importRows){
         w.id=String(nextId++);
-        const writes={[`wines/${w.id}`]:w};
-        if(w._loc){
-          const slot=findImportSlot(w._loc.locId,w._loc.slotHint,pending);
+        const {_loc, ...wineData}=w;         // strip temp field before saving
+        const writes={[`wines/${w.id}`]:wineData};
+        if(_loc){
+          const slot=findImportSlot(_loc.locId,_loc.slotHint,pending);
           if(slot){
-            writes[`slots/${w._loc.locId}/${slot}`]=w.id;
-            if(!pending[w._loc.locId]) pending[w._loc.locId]={};
-            pending[w._loc.locId][slot]=true;
+            writes[`slots/${_loc.locId}/${slot}`]=w.id;
+            if(!pending[_loc.locId]) pending[_loc.locId]={};
+            pending[_loc.locId][slot]=true;
           }
         }
         await update(ref(db),writes);
