@@ -154,8 +154,8 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
     box-shadow: var(--shadow);
-    padding: 16px;
-    margin-bottom: 10px;
+    padding: 16px 16px 18px;
+    margin-bottom: 12px;
   }
 
   /* ── Inputs ── */
@@ -1262,7 +1262,7 @@ function renderCellarTab() {
         const s = document.createElement("div");
         s.className = `slot${wine?" occupied":""}`;
         if (wine) { s.style.borderColor=loc.color+"66"; s.style.color=loc.color; }
-        s.innerHTML = (wine ? `<div style="font-size:10px">🍷</div>` : "") + `<div style="font-size:${wine?"6":"7"}px;line-height:1">${slotNum}</div>`;
+        s.innerHTML = (wine ? `<div style="font-size:10px">🍷</div>` : "") + `<div style="font-size:${wine?"8":"9"}px;line-height:1">${slotNum}</div>`;
         if (wine) s.onclick=()=>showSlotDetail(cellarActiveLoc,slot,wine);
         grid.appendChild(s);
       });
@@ -1491,23 +1491,23 @@ function renderFindCard(wine, placement) {
       <div style="flex:1;min-width:0">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
           <div class="color-dot" style="background:${colorDot(wine.color)}"></div>
-          <div style="font-family:'Cormorant Garamond',serif;font-size:16px;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${wine.wine}</div>
+          <div style="font-family:'Cormorant Garamond',serif;font-size:16px;font-weight:700;color:var(--ink);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.25">${wine.wine}</div>
         </div>
-        <div style="color:var(--brown-light);font-size:13px;font-style:italic">${wine.winery}${wine.vintage?" · "+wine.vintage:""}</div>
+        <div style="color:var(--brown-light);font-size:14px;font-style:italic">${wine.winery}${wine.vintage?" · "+wine.vintage:""}</div>
         <div style="display:flex;gap:8px;margin-top:7px;flex-wrap:wrap;align-items:center">
-          ${wine.varietal?`<span style="color:var(--brown-pale);font-size:11px">${wine.varietal}</span>`:""}
-          ${wine.score?`<span style="color:${scoreColor(wine.score)};font-size:11px;font-weight:700">${wine.score}pts</span>`:""}
-          ${wine.price>0?`<span style="color:var(--brown-mid);font-size:11px">$${wine.price}/btl</span>`:""}
-          ${status?`<span style="color:${status.color};font-size:11px">${status.emoji} ${status.label.split("·")[0].trim()}</span>`:""}
+          ${wine.varietal?`<span style="color:var(--brown-pale);font-size:12px">${wine.varietal}</span>`:""}
+          ${wine.score?`<span style="color:${scoreColor(wine.score)};font-size:12px;font-weight:700">${wine.score}pts</span>`:""}
+          ${wine.price>0?`<span style="color:var(--brown-mid);font-size:12px">$${wine.price}/btl</span>`:""}
+          ${status?`<span style="color:${status.color};font-size:12px">${status.emoji} ${status.label.split("·")[0].trim()}</span>`:""}
         </div>
         ${wine.pairings?.length?`<div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap">
-          ${wine.pairings.slice(0,2).map(p=>`<span style="background:rgba(184,134,11,0.1);border-radius:10px;padding:2px 8px;color:var(--brown-mid);font-size:10px">${p}</span>`).join("")}
-          ${wine.pairings.length>2?`<span style="color:var(--brown-pale);font-size:10px">+${wine.pairings.length-2} more</span>`:""}
+          ${wine.pairings.slice(0,2).map(p=>`<span style="background:rgba(184,134,11,0.1);border-radius:10px;padding:2px 8px;color:var(--brown-mid);font-size:11px">${p}</span>`).join("")}
+          ${wine.pairings.length>2?`<span style="color:var(--brown-pale);font-size:11px">+${wine.pairings.length-2} more</span>`:""}
         </div>`:""}
       </div>
       ${loc?`<div style="text-align:right;flex-shrink:0">
         <div style="background:${loc.color}18;color:${loc.color};font-size:11px;padding:3px 9px;border-radius:9px;font-weight:700;margin-bottom:3px;border:1px solid ${loc.color}33">${loc.icon} ${placement.slot}</div>
-        <div style="color:var(--brown-pale);font-size:10px">${loc.name}</div>
+        <div style="color:var(--brown-pale);font-size:11px">${loc.name}</div>
       </div>`:""}
     </div>
   </div>`);
