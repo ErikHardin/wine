@@ -431,7 +431,10 @@ const LOCATIONS = (() => {
 
 const COLOR_OPTIONS   = ["Red","White","Rosé","Sparkling"];
 const VARIETAL_OPTIONS= ["Cabernet Sauvignon","Merlot","Chardonnay","Pinot Noir","Sauvignon Blanc",
-                          "Bordeaux Blend","Riesling","Syrah/Shiraz","Zinfandel","Other"];
+                          "Bordeaux Blend","Riesling","Syrah/Shiraz","Zinfandel",
+                          "Rosé Blend","Red Blend","White Blend","Pinot Grigio","Grenache",
+                          "Malbec","Tempranillo","Viognier","Gewürztraminer","Sangiovese",
+                          "Sparkling Blend","Other"];
 const FOOD_PAIRINGS   = [
   {id:"steak",label:"Steak",emoji:"🥩"},
   {id:"chicken",label:"Chicken",emoji:"🍗"},
@@ -549,16 +552,17 @@ async function saveConsumed(entry) {
 }
 
 // ── Worker calls ─────────────────────────────────────────────────
+async function callPairingsAPI(winery, wine, vintage, varietal, region) {
+  const res = await fetch(`${WORKER_URL}/pairings`, {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({winery, wine, vintage, varietal, region}),
+  });
+  return res.json();
+}
+
 async function fetchPairingsForWine(wine) {
   try {
-    const res = await fetch(`${WORKER_URL}/pairings`, {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({
-        winery:wine.winery, wine:wine.wine, vintage:wine.vintage,
-        varietal:wine.varietal, region:wine.region,
-      }),
-    });
-    const data = await res.json();
+    const data = await callPairingsAPI(wine.winery, wine.wine, wine.vintage, wine.varietal, wine.region);
     if (data.pairings) {
       await updateWine(wine.id, {
         pairings:    data.pairings,
@@ -1083,14 +1087,14 @@ function renderConsumedTab() {
 }
 
 // ── ADD WINE MODAL ───────────────────────────────────────────────
-let addWineScreen = "choose"; // choose | scanning | enriching | form
+let addWineScreen = "choose"; // choose | scanning | enriching | pairings | form
 let addWineForm   = {};
 let addWineScanPreview = null;
 let addWineScanError   = null;
 
 function showAddWineModal() {
   addWineScreen     = "choose";
-  addWineForm       = {winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",score:"",drinkFrom:"",drinkTo:"",notes:""};
+  addWineForm       = {winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",score:"",drinkFrom:"",drinkTo:"",notes:"",_enrichNote:null,_pairings:null,_drinkWindow:null,_servingTip:null};
   addWineScanPreview= null;
   addWineScanError  = null;
   renderAddWineModal();
@@ -1151,6 +1155,17 @@ function renderAddWineModal() {
                 addWineForm._enrichNote = enriched.note||null;
               }
             } catch(e) { console.warn("Enrich failed, continuing:", e); }
+            // Step 3: Food pairings using enriched varietal/region
+            addWineScreen="pairings";
+            renderAddWineModal();
+            try {
+              const pd = await callPairingsAPI(addWineForm.winery, addWineForm.wine, addWineForm.vintage, addWineForm.varietal, addWineForm.region);
+              if(pd.pairings) {
+                addWineForm._pairings    = pd.pairings;
+                addWineForm._drinkWindow = pd.drinkWindow||null;
+                addWineForm._servingTip  = pd.servingTip||null;
+              }
+            } catch(e) { console.warn("Pairings fetch failed, continuing:", e); }
             addWineScreen="form"; renderAddWineModal();
           } catch { addWineScanError="Scan failed — fill in manually."; addWineScreen="form"; renderAddWineModal(); }
         };
@@ -1170,36 +1185,37 @@ function renderAddWineModal() {
     sheet.appendChild(manualBox);
   }
 
-  else if (addWineScreen==="scanning" || addWineScreen==="enriching") {
+  else if (addWineScreen==="scanning" || addWineScreen==="enriching" || addWineScreen==="pairings") {
     if(addWineScanPreview){
       const img=document.createElement("img"); img.src=addWineScanPreview;
       img.style.cssText="width:100%;max-height:200px;object-fit:contain;border-radius:12px;margin-bottom:20px;background:#f5ede0";
       sheet.appendChild(img);
     }
-    const isEnriching = addWineScreen==="enriching";
-    // Progress steps
-    const steps = html(`<div style="margin-bottom:20px">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-        <div style="width:22px;height:22px;border-radius:50%;background:${isEnriching?"var(--gold)":"rgba(184,134,11,0.2)"};border:2px solid var(--gold);display:flex;align-items:center;justify-content:center;font-size:11px;color:${isEnriching?"white":"var(--gold)"};font-weight:700;flex-shrink:0">${isEnriching?"✓":"1"}</div>
-        <div style="font-size:14px;color:${isEnriching?"var(--gold)":"var(--ink)"};font-weight:${isEnriching?"400":"600"}">Reading label…${isEnriching?" ✓":""}</div>
-      </div>
-      <div style="display:flex;align-items:center;gap:10px">
-        <div style="width:22px;height:22px;border-radius:50%;background:${isEnriching?"rgba(184,134,11,0.15)":"rgba(184,134,11,0.08)"};border:2px solid ${isEnriching?"var(--gold)":"var(--border)"};display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--gold);font-weight:700;flex-shrink:0">${isEnriching?"":"2"}</div>
-        <div style="font-size:14px;color:${isEnriching?"var(--ink)":"var(--brown-pale)"};font-weight:${isEnriching?"600":"400"}">Looking up wine data…</div>
-      </div>
-    </div>`);
-    if(isEnriching) {
-      const spinner2 = document.createElement("div"); spinner2.className="spinner"; spinner2.style.cssText="width:16px;height:16px;flex-shrink:0;border-width:2px";
-      steps.querySelectorAll("div > div")[3].prepend(spinner2);
-    } else {
-      const spinner1 = document.createElement("div"); spinner1.className="spinner"; spinner1.style.cssText="width:16px;height:16px;flex-shrink:0;border-width:2px";
-      steps.querySelectorAll("div > div")[1].prepend(spinner1);
-    }
+    const stepNum = addWineScreen==="scanning"?1:addWineScreen==="enriching"?2:3;
+    const stepDefs = [
+      {label:"Reading label…",        sub:"Claude is analyzing your bottle"},
+      {label:"Looking up wine data…", sub:"Looking up scores, pricing & drink window"},
+      {label:"Finding food pairings…",sub:"Matching with food & serving tips"},
+    ];
+    const stepsEl = document.createElement("div"); stepsEl.style.marginBottom="20px";
+    stepDefs.forEach((def,i)=>{
+      const n=i+1, done=n<stepNum, active=n===stepNum;
+      const row=document.createElement("div"); row.style.cssText="display:flex;align-items:center;gap:10px"+(i<2?";margin-bottom:10px":"");
+      const circle=document.createElement("div");
+      circle.style.cssText=`width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;border:2px solid ${done||active?"var(--gold)":"var(--border)"};background:${done?"var(--gold)":active?"rgba(184,134,11,0.15)":"rgba(184,134,11,0.08)"};color:${done?"white":"var(--gold)"}`;
+      if(active){ const sp=document.createElement("div"); sp.className="spinner"; sp.style.cssText="width:16px;height:16px;flex-shrink:0;border-width:2px"; circle.appendChild(sp); }
+      else { circle.textContent=done?"✓":String(n); }
+      const lbl=document.createElement("div");
+      lbl.style.cssText=`font-size:14px;color:${done?"var(--gold)":active?"var(--ink)":"var(--brown-pale)"};font-weight:${active?"600":"400"}`;
+      lbl.textContent=def.label+(done?" ✓":"");
+      row.appendChild(circle); row.appendChild(lbl); stepsEl.appendChild(row);
+    });
+    const activeDef=stepDefs[stepNum-1];
     const sp=html(`<div style="text-align:center;padding:10px 0">
-      <div style="font-family:'Cormorant Garamond',serif;font-size:20px;color:var(--gold);font-weight:700;margin-bottom:5px">${isEnriching?"Enriching wine data…":"Reading label…"}</div>
-      <div style="color:var(--brown-pale);font-size:13px">${isEnriching?"Looking up scores, pricing & drink window":"Claude is analyzing your bottle"}</div>
+      <div style="font-family:'Cormorant Garamond',serif;font-size:20px;color:var(--gold);font-weight:700;margin-bottom:5px">${activeDef.label}</div>
+      <div style="color:var(--brown-pale);font-size:13px">${activeDef.sub}</div>
     </div>`);
-    sheet.appendChild(steps);
+    sheet.appendChild(stepsEl);
     sheet.appendChild(sp);
   }
 
@@ -1258,13 +1274,18 @@ function renderAddWineModal() {
     });
     form.appendChild(row1);
 
-    // Varietal select
+    // Varietal text input with datalist suggestions
+    if(!document.getElementById("varietal-suggestions")){
+      const dl=document.createElement("datalist"); dl.id="varietal-suggestions";
+      VARIETAL_OPTIONS.forEach(v=>{ const o=document.createElement("option"); o.value=v; dl.appendChild(o); });
+      document.body.appendChild(dl);
+    }
     const varWrap=document.createElement("div");
     varWrap.appendChild(html(`<div class="field-label">Varietal</div>`));
-    const sel=document.createElement("select");
-    sel.innerHTML=`<option value="">Select varietal…</option>`+VARIETAL_OPTIONS.map(v=>`<option value="${v}"${addWineForm.varietal===v?" selected":""}>${v}</option>`).join("");
-    sel.onchange=e=>addWineForm.varietal=e.target.value;
-    varWrap.appendChild(sel); form.appendChild(varWrap);
+    const varInp=document.createElement("input"); varInp.placeholder="e.g. Cabernet Sauvignon"; varInp.value=addWineForm.varietal;
+    varInp.setAttribute("list","varietal-suggestions");
+    varInp.oninput=e=>addWineForm.varietal=e.target.value;
+    varWrap.appendChild(varInp); form.appendChild(varWrap);
 
     // Region
     const regWrap=document.createElement("div");
@@ -1302,6 +1323,19 @@ function renderAddWineModal() {
     ta.oninput=e=>addWineForm.notes=e.target.value;
     notesWrap.appendChild(ta); form.appendChild(notesWrap);
 
+    // Food pairings preview (pre-fetched during scan)
+    if(addWineForm._pairings?.length) {
+      const pairWrap=document.createElement("div");
+      pairWrap.appendChild(html(`<div class="field-label">Food Pairings</div>`));
+      const chips=document.createElement("div"); chips.style.cssText="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px";
+      addWineForm._pairings.forEach(p=>{
+        const fp=FOOD_PAIRINGS.find(f=>(FOOD_ALIASES[f.id]||[f.id]).some(a=>p.toLowerCase().includes(a)));
+        const emoji=fp?fp.emoji:"🍽️";
+        chips.appendChild(html(`<span style="background:rgba(184,134,11,0.12);border:1px solid rgba(184,134,11,0.3);border-radius:20px;padding:4px 10px;font-size:13px">${emoji} ${p}</span>`));
+      });
+      pairWrap.appendChild(chips); form.appendChild(pairWrap);
+    }
+
     sheet.appendChild(form);
 
     // Actions
@@ -1327,14 +1361,17 @@ function renderAddWineModal() {
         drinkFrom:parseInt(addWineForm.drinkFrom)||null,
         drinkTo:  parseInt(addWineForm.drinkTo)||null,
         notes:   addWineForm.notes.trim(),
-        pairings:null, drinkWindow:null, servingTip:null,
+        pairings:    addWineForm._pairings    ||null,
+        drinkWindow: addWineForm._drinkWindow ||null,
+        servingTip:  addWineForm._servingTip  ||null,
+        pairingsAt:  addWineForm._pairings    ?Date.now():null,
         createdAt:Date.now(),
       };
       save.textContent="Saving…"; save.disabled=true;
       await saveWine(wine);
       root.innerHTML="";
-      // Fetch pairings in background
-      fetchPairingsForWine(wine);
+      // Fetch pairings in background only if not already fetched during scan
+      if(!wine.pairings) fetchPairingsForWine(wine);
     };
     actions.appendChild(cancel); actions.appendChild(save);
     sheet.appendChild(actions);
