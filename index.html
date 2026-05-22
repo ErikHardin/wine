@@ -233,7 +233,7 @@
   .modal-sheet {
     background: var(--cream); border-radius: 22px 22px 0 0;
     padding: 22px 20px 44px; max-height: 92vh; overflow-y: auto;
-    box-shadow: 0 -8px 40px rgba(107,61,30,0.2);
+    box-shadow: 0 -8px 40px rgba(107,61,30,0.2); position: relative;
   }
   .modal-handle {
     width: 36px; height: 4px; background: var(--parchment);
@@ -278,7 +278,7 @@
 
   /* ── Misc ── */
   .section-label {
-    color: var(--brown-mid); font-size: 10px; letter-spacing: 2.5px;
+    color: var(--brown-mid); font-size: 14px; letter-spacing: 2.5px;
     text-transform: uppercase; margin-bottom: 8px;
     font-family: 'Cormorant Garamond', serif;
   }
@@ -1437,6 +1437,10 @@ function renderAddWineModal() {
   overlay.onclick=e=>{ if(e.target===overlay) root.innerHTML=""; };
   sheet.appendChild(html(`<div class="modal-handle"></div>`));
 
+  const closeBtn=html(`<button style="position:absolute;top:16px;right:16px;background:none;border:none;cursor:pointer;font-size:20px;color:var(--brown-mid);line-height:1;padding:4px">✕</button>`);
+  closeBtn.onclick=()=>{ root.innerHTML=""; };
+  sheet.appendChild(closeBtn);
+
   if (addWineScreen==="choose") {
     sheet.appendChild(html(`<div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:800;color:var(--ink);margin-bottom:6px">Add a Wine</div>`));
     sheet.appendChild(html(`<div style="color:var(--brown-mid);font-size:14px;margin-bottom:24px">How would you like to add it?</div>`));
@@ -1445,7 +1449,7 @@ function renderAddWineModal() {
     const scanBox=html(`<div style="background:rgba(184,134,11,0.06);border:2px dashed rgba(184,134,11,0.3);border-radius:16px;padding:32px 20px;text-align:center;cursor:pointer;margin-bottom:12px">
       <div style="font-size:42px;margin-bottom:10px">📷</div>
       <div style="font-family:'Cormorant Garamond',serif;font-size:19px;font-weight:700;color:var(--gold);margin-bottom:5px">Scan the Label</div>
-      <div style="color:var(--brown-mid);font-size:13px;line-height:1.5">Take a photo of the bottle.<br>Claude reads the label and pre-fills the form.</div>
+      <div style="color:var(--brown-mid);font-size:13px;line-height:1.5">Take a photo of the bottle and pre-fill the form.</div>
     </div>`);
     scanBox.onclick=()=>{
       const inp=document.createElement("input"); inp.type="file"; inp.accept="image/*"; inp.capture="environment";
@@ -1587,14 +1591,6 @@ function renderAddWineModal() {
     manualBox.onclick=()=>{ addWineScreen="form"; renderAddWineModal(); };
     sheet.appendChild(manualBox);
 
-    // Import CSV
-    const importBox=html(`<div style="background:var(--surface-2);border:1px solid var(--border);border-radius:16px;padding:20px;text-align:center;cursor:pointer">
-      <div style="font-size:32px;margin-bottom:8px">📋</div>
-      <div style="font-family:'Cormorant Garamond',serif;font-size:19px;font-weight:700;color:var(--brown-mid);margin-bottom:4px">Import from CSV</div>
-      <div style="color:var(--brown-pale);font-size:13px">Bulk import from a spreadsheet or wine app export.</div>
-    </div>`);
-    importBox.onclick=()=>{ root.innerHTML=""; showImportModal(); };
-    sheet.appendChild(importBox);
   }
 
   else if (addWineScreen==="scanning" || addWineScreen==="enriching" || addWineScreen==="pairings") {
