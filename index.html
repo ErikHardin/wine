@@ -400,7 +400,11 @@ const SESSION_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days in ms
 let currentTab = "cellar";
 let nextId     = Date.now();
 let trips      = {};   // { id: tripObj }
-let activeTrip = "";   // selected trip id on trip tab, or "" = All
+let activeTrip = localStorage.getItem("wine_active_trip") || "";
+function setActiveTrip(id) {
+  activeTrip = id;
+  try { id ? localStorage.setItem("wine_active_trip", id) : localStorage.removeItem("wine_active_trip"); } catch(_) {}
+}
 
 // ── Locations ────────────────────────────────────────────────────
 const LOCATIONS = (() => {
@@ -998,7 +1002,7 @@ function showCreateTripModal() {
     create.textContent = "Creating…"; create.disabled = true;
     try {
       await saveTrip(trip);
-      activeTrip = trip.id;
+      setActiveTrip(trip.id);
       root.innerHTML = "";
     } catch(e) {
       create.textContent = "Create Trip"; create.disabled = false;
@@ -1036,7 +1040,7 @@ function renderTripTab() {
   const frag = document.createDocumentFragment();
 
   // Guard: reset activeTrip if it points to a deleted trip
-  if (activeTrip && !trips[activeTrip]) activeTrip = "";
+  if (activeTrip && !trips[activeTrip]) setActiveTrip("");
 
   // Trip control row
   const tripRow = document.createElement("div");
@@ -1049,7 +1053,7 @@ function renderTripTab() {
     if (t.id === activeTrip) opt.selected = true;
     tripSel.appendChild(opt);
   });
-  tripSel.onchange = e => { activeTrip = e.target.value; renderTab(); };
+  tripSel.onchange = e => { setActiveTrip(e.target.value); renderTab(); };
   tripRow.appendChild(tripSel);
   const newTripBtn = html(`<button class="btn-ghost" style="width:auto;padding:10px 14px;font-size:18px;flex-shrink:0">+</button>`);
   newTripBtn.onclick = () => showCreateTripModal();
