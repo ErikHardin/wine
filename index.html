@@ -43,6 +43,47 @@
     --radius-sm:  9px;
   }
 
+  [data-theme="dark"] {
+    --cream:       #2a1c0e;
+    --cream-dark:  #221608;
+    --parchment:   #1a1008;
+    --gold:        #c8960c;
+    --gold-light:  #e0b840;
+    --gold-pale:   #f0c840;
+    --brown:       #c8a070;
+    --brown-mid:   #b08050;
+    --brown-light: #d4aa80;
+    --brown-pale:  #8a6040;
+    --ink:         #f0e6d3;
+    --ink-mid:     #d4c0a0;
+    --ink-light:   #b89870;
+    --surface:     rgba(255,255,255,0.07);
+    --surface-2:   rgba(255,255,255,0.05);
+    --surface-3:   rgba(255,255,255,0.03);
+    --border:      rgba(200,150,12,0.25);
+    --border-2:    rgba(200,150,12,0.15);
+    --shadow:      0 2px 16px rgba(0,0,0,0.4);
+    --shadow-lg:   0 8px 32px rgba(0,0,0,0.55);
+  }
+
+  [data-theme="dark"] body { background: #1a1008; }
+
+  [data-theme="dark"] body::after {
+    background:
+      radial-gradient(ellipse at 15% 0%, rgba(200,150,12,0.10) 0%, transparent 55%),
+      radial-gradient(ellipse at 85% 100%, rgba(80,40,10,0.30) 0%, transparent 50%);
+  }
+
+  [data-theme="dark"] body::before { opacity: 0.06; }
+
+  [data-theme="dark"] .app-header {
+    background: linear-gradient(180deg, rgba(26,16,8,0.98) 0%, rgba(26,16,8,0) 100%);
+  }
+
+  [data-theme="dark"] #pin-screen {
+    background: linear-gradient(160deg, #1a1008 0%, #150e06 60%, #1a1008 100%);
+  }
+
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 
   body {
@@ -346,7 +387,10 @@
         <div style="font-size:10px;letter-spacing:4px;text-transform:uppercase;color:var(--brown-pale);margin-bottom:4px;font-family:'Cormorant Garamond',serif">Hardin Wine</div>
         <h1>Cellar <span>Manager</span></h1>
       </div>
-      <div style="display:flex;gap:8px" id="header-badges"></div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+        <button id="theme-toggle" onclick="toggleTheme()" style="background:none;border:1px solid var(--border);border-radius:20px;padding:3px 10px;cursor:pointer;font-size:14px;line-height:1;color:var(--brown-mid);transition:border-color 0.2s"><span id="theme-icon">🌙</span></button>
+        <div style="display:flex;gap:8px" id="header-badges"></div>
+      </div>
     </div>
     <div class="header-divider"></div>
   </div>
@@ -1341,7 +1385,7 @@ function renderFilterPanel(storedWines, storedIds) {
 
   if (!filterOpen) return wrap;
 
-  const panel = html(`<div style="background:rgba(255,255,255,0.6);border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:10px;display:flex;flex-direction:column;gap:14px"></div>`);
+  const panel = html(`<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:10px;display:flex;flex-direction:column;gap:14px"></div>`);
 
   // Food filter
   const withPairings = storedWines.filter(w=>w.pairings?.length).length;
@@ -2534,13 +2578,36 @@ function showSlotDetail(locId,slot,wine){
   root.appendChild(overlay);
 }
 
+// ── Theme ────────────────────────────────────────────────────────
+const THEME_KEY = "wine_theme";
+
+function applyTheme(dark) {
+  document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+  const icon = document.getElementById("theme-icon");
+  if (icon) icon.textContent = dark ? "☀️" : "🌙";
+  document.querySelector('meta[name="theme-color"]')
+    .setAttribute("content", dark ? "#1a1008" : "#f5ede0");
+}
+
+function toggleTheme() {
+  const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+  try { localStorage.setItem(THEME_KEY, isDark ? "light" : "dark"); } catch(_) {}
+  applyTheme(!isDark);
+}
+
+(function initTheme() {
+  const saved = (() => { try { return localStorage.getItem(THEME_KEY); } catch(_) { return null; } })();
+  applyTheme(saved === "dark");
+})();
+
 // ── Boot ─────────────────────────────────────────────────────────
 initPin();
 
 // Expose globals for inline handlers
-window.pinPress  = pinPress;
-window.pinDelete = pinDelete;
-window.switchTab = switchTab;
+window.pinPress     = pinPress;
+window.pinDelete    = pinDelete;
+window.switchTab    = switchTab;
+window.toggleTheme  = toggleTheme;
 
 </script>
 </body>
