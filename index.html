@@ -1015,6 +1015,18 @@ let cellarActiveLoc = "winefridge";
 function renderCellarTab() {
   const frag = document.createDocumentFragment();
 
+  // Overall capacity summary
+  const totalOcc = Object.values(LOCATIONS).reduce((s,loc)=>s+Object.values(slots[loc.id]||{}).filter(Boolean).length,0);
+  const totalCap = Object.values(LOCATIONS).reduce((s,loc)=>s+loc.slots.length,0);
+  const totalPct = totalCap>0?Math.round(totalOcc/totalCap*100):0;
+  frag.appendChild(html(`<div style="margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
+      <span style="color:var(--brown-mid);font-size:12px">${totalOcc} of ${totalCap} total slots used</span>
+      <span style="font-family:'Cormorant Garamond',serif;font-size:13px;font-weight:700;color:var(--gold)">${totalPct}%</span>
+    </div>
+    <div class="drink-bar"><div class="drink-bar-fill" style="width:${totalPct}%;background:var(--gold)"></div></div>
+  </div>`));
+
   // Location picker
   const locPicker = document.createElement("div");
   locPicker.style.cssText = "display:flex;gap:8px;margin-bottom:16px";
@@ -1349,12 +1361,14 @@ function renderConsumedTab() {
 }
 
 // ── ADD WINE MODAL ───────────────────────────────────────────────
-let addWineScreen = "choose"; // choose | scanning | enriching | pairings | form | queue-form
-let addWineForm   = {};
+let addWineScreen  = "choose"; // choose | scanning | enriching | pairings | form | queue-form
+let addWineForm    = {};
 let addWineScanPreview = null;
 let addWineScanError   = null;
 let scanQueue      = [];
 let scanQueueIndex = 0;
+let isMultiScan    = false;  // true when using sequential multi-bottle scan
+let scanQueueSaved = 0;      // bottles saved so far in this multi-scan session
 
 function showAddWineModal() {
   addWineScreen     = "choose";
@@ -1363,7 +1377,55 @@ function showAddWineModal() {
   addWineScanError  = null;
   scanQueue         = [];
   scanQueueIndex    = 0;
+  isMultiScan       = false;
+  scanQueueSaved    = 0;
   renderAddWineModal();
+}
+
+// Sequential single-bottle scanner used by "Scan Multiple Bottles"
+function startMultiScanCamera() {
+  addWineForm={winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",score:"",drinkFrom:"",drinkTo:"",notes:"",_enrichNote:null,_pairings:null,_drinkWindow:null,_servingTip:null};
+  addWineScanPreview=null; addWineScanError=null;
+  const inp=document.createElement("input"); inp.type="file"; inp.accept="image/*"; inp.capture="environment";
+  inp.onchange=async e=>{
+    const file=e.target.files[0]; if(!file) return;
+    const reader=new FileReader();
+    reader.onload=async ev=>{
+      addWineScanPreview=ev.target.result;
+      addWineScreen="scanning"; renderAddWineModal();
+      try {
+        const b64=ev.target.result.split(",")[1];
+        const result=await scanLabel(b64);
+        if(result.error){addWineScanError="Couldn't read label — fill in manually."; addWineScreen="form"; renderAddWineModal(); return;}
+        addWineForm.winery=result.winery||""; addWineForm.wine=result.wine||"";
+        addWineForm.vintage=result.vintage||""; addWineForm.varietal=result.varietal||"";
+        addWineForm.region=result.region||"";
+        if(COLOR_OPTIONS.includes(result.color)) addWineForm.color=result.color;
+        addWineScreen="enriching"; renderAddWineModal();
+        try {
+          const enriched=await enrichWineData(addWineForm.winery,addWineForm.wine,addWineForm.vintage);
+          if(!enriched.error){
+            if(enriched.varietal&&!addWineForm.varietal) addWineForm.varietal=enriched.varietal;
+            if(enriched.region&&!addWineForm.region) addWineForm.region=enriched.region;
+            if(enriched.color&&COLOR_OPTIONS.includes(enriched.color)) addWineForm.color=enriched.color;
+            if(enriched.score) addWineForm.score=String(enriched.score);
+            if(enriched.avgPrice) addWineForm.price=String(enriched.avgPrice);
+            if(enriched.drinkFrom) addWineForm.drinkFrom=String(enriched.drinkFrom);
+            if(enriched.drinkTo) addWineForm.drinkTo=String(enriched.drinkTo);
+            addWineForm._enrichNote=enriched.note||null;
+          }
+        } catch(_){}
+        addWineScreen="pairings"; renderAddWineModal();
+        try {
+          const pd=await callPairingsAPI(addWineForm.winery,addWineForm.wine,addWineForm.vintage,addWineForm.varietal,addWineForm.region);
+          if(pd.pairings){addWineForm._pairings=pd.pairings; addWineForm._drinkWindow=pd.drinkWindow||null; addWineForm._servingTip=pd.servingTip||null;}
+        } catch(_){}
+        addWineScreen="queue-form"; renderAddWineModal();
+      } catch(_){addWineScanError="Scan failed — fill in manually."; addWineScreen="form"; renderAddWineModal();}
+    };
+    reader.readAsDataURL(file);
+  };
+  inp.click();
 }
 
 function renderAddWineModal() {
@@ -1445,73 +1507,11 @@ function renderAddWineModal() {
     const multiScanBox=html(`<div style="background:rgba(184,134,11,0.04);border:2px dashed rgba(184,134,11,0.2);border-radius:16px;padding:20px;text-align:center;cursor:pointer;margin-bottom:12px">
       <div style="font-size:36px;margin-bottom:8px">📷📷</div>
       <div style="font-family:'Cormorant Garamond',serif;font-size:19px;font-weight:700;color:var(--gold);margin-bottom:4px">Scan Multiple Bottles</div>
-      <div style="color:var(--brown-mid);font-size:13px">Take a photo with 2+ bottles visible.<br>Confirm each wine one by one.</div>
+      <div style="color:var(--brown-mid);font-size:13px">Scan one bottle at a time.<br>Save each and scan the next.</div>
     </div>`);
     multiScanBox.onclick=()=>{
-      const inp=document.createElement("input"); inp.type="file"; inp.accept="image/*"; inp.capture="environment";
-      inp.onchange=async e=>{
-        const file=e.target.files[0]; if(!file) return;
-        const reader=new FileReader();
-        reader.onload=async ev=>{
-          addWineScanPreview=ev.target.result;
-          addWineScreen="scanning";
-          renderAddWineModal();
-          try {
-            const b64=ev.target.result.split(",")[1];
-            // Try multi-scan endpoint first
-            let winesList=null;
-            try {
-              const r=await fetch(`${WORKER_URL}/scan-multi`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({image:b64})});
-              if(r.ok){const d=await r.json(); if(Array.isArray(d.wines)&&d.wines.length) winesList=d.wines; else if(!d.error) winesList=[d];}
-            } catch(_){}
-            // Fallback to single scan
-            if(!winesList){
-              const result=await scanLabel(b64);
-              if(result.error){addWineScanError="Couldn't read label — fill in manually."; addWineScreen="form"; renderAddWineModal(); return;}
-              winesList=[result];
-            }
-            // Build form objects for each wine
-            const mkForm=()=>({winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",score:"",drinkFrom:"",drinkTo:"",notes:"",_enrichNote:null,_pairings:null,_drinkWindow:null,_servingTip:null});
-            scanQueue=winesList.map(w=>{
-              const f=mkForm();
-              f.winery=w.winery||""; f.wine=w.wine||""; f.vintage=w.vintage||"";
-              f.varietal=w.varietal||""; f.region=w.region||"";
-              if(COLOR_OPTIONS.includes(w.color)) f.color=w.color;
-              return f;
-            });
-            scanQueueIndex=0;
-            // Enrich + pairings for each wine in queue
-            for(let i=0;i<scanQueue.length;i++){
-              scanQueueIndex=i;
-              const q=scanQueue[i];
-              addWineScreen="enriching"; renderAddWineModal();
-              try {
-                const enriched=await enrichWineData(q.winery,q.wine,q.vintage);
-                if(!enriched.error){
-                  if(enriched.varietal&&!q.varietal) q.varietal=enriched.varietal;
-                  if(enriched.region&&!q.region) q.region=enriched.region;
-                  if(enriched.color&&COLOR_OPTIONS.includes(enriched.color)&&!addWineForm.color) q.color=enriched.color;
-                  if(enriched.score) q.score=String(enriched.score);
-                  if(enriched.avgPrice) q.price=String(enriched.avgPrice);
-                  if(enriched.drinkFrom) q.drinkFrom=String(enriched.drinkFrom);
-                  if(enriched.drinkTo) q.drinkTo=String(enriched.drinkTo);
-                  q._enrichNote=enriched.note||null;
-                }
-              } catch(_){}
-              addWineScreen="pairings"; renderAddWineModal();
-              try {
-                const pd=await callPairingsAPI(q.winery,q.wine,q.vintage,q.varietal,q.region);
-                if(pd.pairings){q._pairings=pd.pairings; q._drinkWindow=pd.drinkWindow||null; q._servingTip=pd.servingTip||null;}
-              } catch(_){}
-            }
-            scanQueueIndex=0;
-            addWineForm={...scanQueue[0]};
-            addWineScreen="queue-form"; renderAddWineModal();
-          } catch(_){addWineScanError="Scan failed — fill in manually."; addWineScreen="form"; renderAddWineModal();}
-        };
-        reader.readAsDataURL(file);
-      };
-      inp.click();
+      isMultiScan=true; scanQueueSaved=0; scanQueue=[];
+      startMultiScanCamera();
     };
     sheet.appendChild(multiScanBox);
 
@@ -1728,22 +1728,31 @@ function renderAddWineModal() {
   }
 
   else if (addWineScreen==="queue-form") {
-    const isLast = scanQueueIndex >= scanQueue.length-1;
-    // Back + title
+    const isLast = !isMultiScan && scanQueueIndex >= scanQueue.length-1;
+    // Header
     const titleRow=html(`<div style="display:flex;align-items:center;gap:12px;margin-bottom:6px"></div>`);
     const back=html(`<button style="background:none;border:none;color:var(--brown-mid);font-size:18px;cursor:pointer;padding:0">←</button>`);
     back.onclick=()=>{ addWineScreen="choose"; renderAddWineModal(); };
     titleRow.appendChild(back);
-    titleRow.appendChild(html(`<div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:800;color:var(--ink)">Confirm Wine ${scanQueueIndex+1} of ${scanQueue.length}</div>`));
-    sheet.appendChild(titleRow);
-    // Progress dots
-    const dots=document.createElement("div"); dots.style.cssText="display:flex;gap:6px;margin-bottom:16px";
-    for(let i=0;i<scanQueue.length;i++){
-      const d=document.createElement("div");
-      d.style.cssText=`width:8px;height:8px;border-radius:50%;background:${i<scanQueueIndex?"var(--gold)":i===scanQueueIndex?"var(--red-wine)":"var(--border)"}`;
-      dots.appendChild(d);
+    if(isMultiScan){
+      const tw=document.createElement("div"); tw.style.cssText="display:flex;align-items:center;gap:8px;flex:1";
+      tw.appendChild(html(`<div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:800;color:var(--ink)">Confirm Details</div>`));
+      if(scanQueueSaved>0) tw.appendChild(html(`<span style="background:rgba(90,138,58,0.12);color:#5a8a3a;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:700">+${scanQueueSaved} saved</span>`));
+      titleRow.appendChild(tw);
+    } else {
+      titleRow.appendChild(html(`<div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:800;color:var(--ink)">Confirm Wine ${scanQueueIndex+1} of ${scanQueue.length}</div>`));
     }
-    sheet.appendChild(dots);
+    sheet.appendChild(titleRow);
+    // Progress dots (pre-processed queue only)
+    if(!isMultiScan){
+      const dots=document.createElement("div"); dots.style.cssText="display:flex;gap:6px;margin-bottom:16px";
+      for(let i=0;i<scanQueue.length;i++){
+        const d=document.createElement("div");
+        d.style.cssText=`width:8px;height:8px;border-radius:50%;background:${i<scanQueueIndex?"var(--gold)":i===scanQueueIndex?"var(--red-wine)":"var(--border)"}`;
+        dots.appendChild(d);
+      }
+      sheet.appendChild(dots);
+    }
 
     if(addWineForm._enrichNote) sheet.appendChild(html(`<div style="background:rgba(184,134,11,0.08);border:1px solid rgba(184,134,11,0.2);border-radius:10px;padding:10px 14px;margin-bottom:14px;color:var(--gold);font-size:13px">🤖 ${addWineForm._enrichNote}</div>`));
     if(addWineScanPreview){
@@ -1760,7 +1769,7 @@ function renderAddWineModal() {
     COLOR_OPTIONS.forEach(c=>{
       const active=addWineForm.color===c; const dot=colorDot(c);
       const btn=html(`<button style="flex:1;padding:8px 4px;border-radius:9px;border:1px solid ${active?dot:"var(--border)"};background:${active?dot+"22":"transparent"};color:${active?dot:"var(--brown-pale)"};font-size:11px;cursor:pointer;font-family:inherit;font-weight:700">${c}</button>`);
-      btn.onclick=()=>{ addWineForm.color=c; scanQueue[scanQueueIndex].color=c; renderAddWineModal(); };
+      btn.onclick=()=>{ addWineForm.color=c; if(scanQueue[scanQueueIndex]) scanQueue[scanQueueIndex].color=c; renderAddWineModal(); };
       pills.appendChild(btn);
     });
     colorRow.appendChild(pills); form.appendChild(colorRow);
@@ -1769,7 +1778,7 @@ function renderAddWineModal() {
       const wrap=document.createElement("div");
       wrap.appendChild(html(`<div class="field-label">${f.label}</div>`));
       const inp=document.createElement("input"); inp.placeholder=f.placeholder; inp.value=addWineForm[f.key];
-      inp.oninput=e=>{ addWineForm[f.key]=e.target.value; scanQueue[scanQueueIndex][f.key]=e.target.value; };
+      inp.oninput=e=>{ addWineForm[f.key]=e.target.value; if(scanQueue[scanQueueIndex]) scanQueue[scanQueueIndex][f.key]=e.target.value; };
       wrap.appendChild(inp); form.appendChild(wrap);
     });
     // Vintage + Qty
@@ -1778,7 +1787,7 @@ function renderAddWineModal() {
       const w=document.createElement("div"); w.style.flex="1";
       w.appendChild(html(`<div class="field-label">${i===0?"Vintage":"Quantity"}</div>`));
       const inp=document.createElement("input"); inp.placeholder=i===0?"2021":"1"; inp.value=addWineForm[k]; inp.inputMode="numeric"; if(i===0) inp.maxLength=4;
-      inp.oninput=e=>{ const v=e.target.value.replace(/\D/g,""); addWineForm[k]=v; scanQueue[scanQueueIndex][k]=v; };
+      inp.oninput=e=>{ const v=e.target.value.replace(/\D/g,""); addWineForm[k]=v; if(scanQueue[scanQueueIndex]) scanQueue[scanQueueIndex][k]=v; };
       w.appendChild(inp); row1.appendChild(w);
     });
     form.appendChild(row1);
@@ -1792,13 +1801,13 @@ function renderAddWineModal() {
     varWrap.appendChild(html(`<div class="field-label">Varietal</div>`));
     const varInp=document.createElement("input"); varInp.placeholder="e.g. Cabernet Sauvignon"; varInp.value=addWineForm.varietal;
     varInp.setAttribute("list","varietal-suggestions");
-    varInp.oninput=e=>{ addWineForm.varietal=e.target.value; scanQueue[scanQueueIndex].varietal=e.target.value; };
+    varInp.oninput=e=>{ addWineForm.varietal=e.target.value; if(scanQueue[scanQueueIndex]) scanQueue[scanQueueIndex].varietal=e.target.value; };
     varWrap.appendChild(varInp); form.appendChild(varWrap);
     // Region
     const regWrap=document.createElement("div");
     regWrap.appendChild(html(`<div class="field-label">Region / Appellation</div>`));
     const ri=document.createElement("input"); ri.placeholder="e.g. Napa Valley, CA"; ri.value=addWineForm.region;
-    ri.oninput=e=>{ addWineForm.region=e.target.value; scanQueue[scanQueueIndex].region=e.target.value; };
+    ri.oninput=e=>{ addWineForm.region=e.target.value; if(scanQueue[scanQueueIndex]) scanQueue[scanQueueIndex].region=e.target.value; };
     regWrap.appendChild(ri); form.appendChild(regWrap);
     // Price + Score
     const row2=html(`<div style="display:flex;gap:10px"></div>`);
@@ -1806,7 +1815,7 @@ function renderAddWineModal() {
       const w=document.createElement("div"); w.style.flex="1";
       w.appendChild(html(`<div class="field-label">${l}</div>`));
       const inp=document.createElement("input"); inp.placeholder=p; inp.value=addWineForm[k]; inp.inputMode="decimal";
-      inp.oninput=e=>{ const v=e.target.value.replace(/[^0-9.]/g,""); addWineForm[k]=v; scanQueue[scanQueueIndex][k]=v; };
+      inp.oninput=e=>{ const v=e.target.value.replace(/[^0-9.]/g,""); addWineForm[k]=v; if(scanQueue[scanQueueIndex]) scanQueue[scanQueueIndex][k]=v; };
       w.appendChild(inp); row2.appendChild(w);
     });
     form.appendChild(row2);
@@ -1816,7 +1825,7 @@ function renderAddWineModal() {
       const w=document.createElement("div"); w.style.flex="1";
       w.appendChild(html(`<div class="field-label">${l}</div>`));
       const inp=document.createElement("input"); inp.placeholder=p; inp.value=addWineForm[k]; inp.inputMode="numeric"; inp.maxLength=4;
-      inp.oninput=e=>{ const v=e.target.value.replace(/\D/g,""); addWineForm[k]=v; scanQueue[scanQueueIndex][k]=v; };
+      inp.oninput=e=>{ const v=e.target.value.replace(/\D/g,""); addWineForm[k]=v; if(scanQueue[scanQueueIndex]) scanQueue[scanQueueIndex][k]=v; };
       w.appendChild(inp); row3.appendChild(w);
     });
     form.appendChild(row3);
@@ -1824,7 +1833,7 @@ function renderAddWineModal() {
     const notesWrap=document.createElement("div");
     notesWrap.appendChild(html(`<div class="field-label">Tasting Notes</div>`));
     const ta=document.createElement("textarea"); ta.placeholder="Dark fruit, hints of oak…"; ta.value=addWineForm.notes;
-    ta.oninput=e=>{ addWineForm.notes=e.target.value; scanQueue[scanQueueIndex].notes=e.target.value; };
+    ta.oninput=e=>{ addWineForm.notes=e.target.value; if(scanQueue[scanQueueIndex]) scanQueue[scanQueueIndex].notes=e.target.value; };
     notesWrap.appendChild(ta); form.appendChild(notesWrap);
     // Pairings preview
     if(addWineForm._pairings?.length){
@@ -1840,41 +1849,66 @@ function renderAddWineModal() {
     }
     sheet.appendChild(form);
 
-    // Actions: Skip | Save & Next/Done
-    const actions=html(`<div style="display:flex;gap:10px;margin-top:20px"></div>`);
-    const skip=html(`<button class="btn-ghost" style="flex:1">${isLast?"Cancel":"Skip"}</button>`);
-    skip.onclick=()=>{
-      if(isLast){ root.innerHTML=""; return; }
-      scanQueueIndex++;
-      addWineForm={...scanQueue[scanQueueIndex]};
-      renderAddWineModal();
-    };
-    const saveQ=html(`<button class="btn-primary" style="flex:2">${isLast?"Save & Done":"Save & Next →"}</button>`);
-    saveQ.onclick=async()=>{
-      if(!addWineForm.winery?.trim()||!addWineForm.wine?.trim()){alert("Winery and wine name are required."); return;}
-      const wine={
-        id:String(nextId++),
-        winery:addWineForm.winery.trim(), wine:addWineForm.wine.trim(),
-        vintage:addWineForm.vintage.trim(), color:addWineForm.color||"Red",
-        varietal:addWineForm.varietal.trim(), region:addWineForm.region.trim(),
-        price:parseFloat(addWineForm.price)||0, qty:parseInt(addWineForm.qty)||1,
-        score:parseInt(addWineForm.score)||null,
-        drinkFrom:parseInt(addWineForm.drinkFrom)||null, drinkTo:parseInt(addWineForm.drinkTo)||null,
-        notes:addWineForm.notes.trim(),
-        pairings:addWineForm._pairings||null, drinkWindow:addWineForm._drinkWindow||null,
-        servingTip:addWineForm._servingTip||null,
-        pairingsAt:addWineForm._pairings?Date.now():null, createdAt:Date.now(),
+    // Actions
+    const buildWineObj=()=>({
+      id:String(nextId++),
+      winery:addWineForm.winery.trim(), wine:addWineForm.wine.trim(),
+      vintage:addWineForm.vintage.trim(), color:addWineForm.color||"Red",
+      varietal:addWineForm.varietal.trim(), region:addWineForm.region.trim(),
+      price:parseFloat(addWineForm.price)||0, qty:parseInt(addWineForm.qty)||1,
+      score:parseInt(addWineForm.score)||null,
+      drinkFrom:parseInt(addWineForm.drinkFrom)||null, drinkTo:parseInt(addWineForm.drinkTo)||null,
+      notes:addWineForm.notes.trim(),
+      pairings:addWineForm._pairings||null, drinkWindow:addWineForm._drinkWindow||null,
+      servingTip:addWineForm._servingTip||null,
+      pairingsAt:addWineForm._pairings?Date.now():null, createdAt:Date.now(),
+    });
+    const validate=()=>{ if(!addWineForm.winery?.trim()||!addWineForm.wine?.trim()){alert("Winery and wine name are required."); return false;} return true; };
+
+    if(isMultiScan){
+      // Sequential multi-scan actions
+      const actions=html(`<div style="display:flex;flex-direction:column;gap:8px;margin-top:20px"></div>`);
+      const scanAnother=html(`<button class="btn-primary">Save & Scan Another →</button>`);
+      scanAnother.onclick=async()=>{
+        if(!validate()) return;
+        scanAnother.textContent="Saving…"; scanAnother.disabled=true;
+        const wine=buildWineObj(); await saveWine(wine);
+        if(!wine.pairings) fetchPairingsForWine(wine);
+        scanQueueSaved++;
+        startMultiScanCamera();
       };
-      saveQ.textContent="Saving…"; saveQ.disabled=true;
-      await saveWine(wine);
-      if(!wine.pairings) fetchPairingsForWine(wine);
-      if(isLast){ root.innerHTML=""; return; }
-      scanQueueIndex++;
-      addWineForm={...scanQueue[scanQueueIndex]};
-      renderAddWineModal();
-    };
-    actions.appendChild(skip); actions.appendChild(saveQ);
-    sheet.appendChild(actions);
+      const saveDone=html(`<button class="btn-ghost">Save & Done</button>`);
+      saveDone.onclick=async()=>{
+        if(!validate()) return;
+        saveDone.textContent="Saving…"; saveDone.disabled=true;
+        const wine=buildWineObj(); await saveWine(wine);
+        if(!wine.pairings) fetchPairingsForWine(wine);
+        root.innerHTML="";
+      };
+      const cancel=html(`<button style="background:none;border:none;color:var(--brown-pale);font-size:12px;cursor:pointer;padding:6px;text-align:center;width:100%">Cancel without saving</button>`);
+      cancel.onclick=()=>root.innerHTML="";
+      actions.appendChild(scanAnother); actions.appendChild(saveDone); actions.appendChild(cancel);
+      sheet.appendChild(actions);
+    } else {
+      // Pre-processed queue actions (Skip | Save & Next/Done)
+      const actions=html(`<div style="display:flex;gap:10px;margin-top:20px"></div>`);
+      const skip=html(`<button class="btn-ghost" style="flex:1">${isLast?"Cancel":"Skip"}</button>`);
+      skip.onclick=()=>{
+        if(isLast){ root.innerHTML=""; return; }
+        scanQueueIndex++; addWineForm={...scanQueue[scanQueueIndex]}; renderAddWineModal();
+      };
+      const saveQ=html(`<button class="btn-primary" style="flex:2">${isLast?"Save & Done":"Save & Next →"}</button>`);
+      saveQ.onclick=async()=>{
+        if(!validate()) return;
+        saveQ.textContent="Saving…"; saveQ.disabled=true;
+        const wine=buildWineObj(); await saveWine(wine);
+        if(!wine.pairings) fetchPairingsForWine(wine);
+        if(isLast){ root.innerHTML=""; return; }
+        scanQueueIndex++; addWineForm={...scanQueue[scanQueueIndex]}; renderAddWineModal();
+      };
+      actions.appendChild(skip); actions.appendChild(saveQ);
+      sheet.appendChild(actions);
+    }
   }
 
   overlay.appendChild(sheet);
