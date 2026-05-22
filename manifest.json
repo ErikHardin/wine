@@ -2,7 +2,7 @@
   "name": "Hardin Wine Cellar",
   "short_name": "Hardin Wine",
   "description": "Personal wine cellar manager for the Hardin family",
-  "start_url": "/WineCellar/index.html",
+  "start_url": "/wine/index.html",
   "scope": "/WineCellar/",
   "display": "standalone",
   "background_color": "#f5ede0",
