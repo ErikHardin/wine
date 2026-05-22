@@ -574,6 +574,160 @@ async function fetchPairingsForWine(wine) {
   } catch(e) { console.warn("Pairings fetch failed:", e); }
 }
 
+// ── CSV IMPORT ────────────────────────────────────────────────────
+let importScreen = "pick";
+let importRows   = [];
+
+function parseWineCSV(text) {
+  const sep = text.includes("\t") ? "\t" : ",";
+  const lines = text.trim().split(/\r?\n/);
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(sep).map(h => h.trim().replace(/^"|"$/g,""));
+  const idx = k => headers.findIndex(h => h.toLowerCase() === k.toLowerCase());
+  const colMap = {
+    wine:      idx("Wine Name"),
+    winery:    idx("Producer"),
+    vintage:   idx("Vintage"),
+    colorRaw:  idx("Wine Type"),
+    varietal:  idx("Grapes"),
+    region:    idx("Region"),
+    price:     idx("Purchase Price"),
+    notes:     idx("Personal Notes"),
+    drinkFrom: idx("Drink Window Start"),
+    drinkTo:   idx("Drink Window End"),
+    addedOn:   idx("Added On"),
+  };
+  const normalizeColor = s => {
+    const v=(s||"").toLowerCase().trim();
+    if(v==="red") return "Red";
+    if(v==="white") return "White";
+    if(v==="rosé"||v==="rose") return "Rosé";
+    if(v==="sparkling"||v==="champagne"||v==="prosecco") return "Sparkling";
+    return "Red";
+  };
+  const parseAddedDate = s => {
+    if(!s) return Date.now();
+    const m=s.match(/(\d+)\/(\d+)\/(\d+)/);
+    if(!m) return Date.now();
+    let [,mo,d,yr]=m.map(Number);
+    if(yr<100) yr+=2000;
+    return new Date(yr,mo-1,d).getTime();
+  };
+  const get=(cells,i)=>i>=0&&i<cells.length?cells[i].trim().replace(/^"|"$/g,""):"";
+  const results=[];
+  for(let i=1;i<lines.length;i++){
+    const cells=lines[i].split(sep);
+    const wineName=get(cells,colMap.wine);
+    if(!wineName) continue;
+    results.push({
+      wine:      wineName,
+      winery:    get(cells,colMap.winery),
+      vintage:   get(cells,colMap.vintage),
+      color:     normalizeColor(get(cells,colMap.colorRaw)),
+      varietal:  get(cells,colMap.varietal),
+      region:    get(cells,colMap.region),
+      price:     parseFloat(get(cells,colMap.price))||0,
+      qty:       1,
+      score:     null,
+      drinkFrom: parseInt(get(cells,colMap.drinkFrom))||null,
+      drinkTo:   parseInt(get(cells,colMap.drinkTo))||null,
+      notes:     get(cells,colMap.notes),
+      pairings:null,drinkWindow:null,servingTip:null,pairingsAt:null,
+      createdAt: parseAddedDate(get(cells,colMap.addedOn)),
+    });
+  }
+  return results;
+}
+
+function showImportModal() {
+  importScreen="pick"; importRows=[];
+  renderImportModal();
+}
+
+function renderImportModal() {
+  const root=el("modal-root"); root.innerHTML="";
+  const overlay=document.createElement("div"); overlay.className="modal-overlay";
+  const sheet  =document.createElement("div"); sheet.className="modal-sheet";
+  overlay.onclick=e=>{ if(e.target===overlay&&importScreen!=="importing") root.innerHTML=""; };
+  sheet.appendChild(html(`<div class="modal-handle"></div>`));
+
+  if(importScreen==="pick"){
+    sheet.appendChild(html(`<div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:800;color:var(--ink);margin-bottom:6px">Import from CSV</div>`));
+    sheet.appendChild(html(`<div style="color:var(--brown-mid);font-size:14px;margin-bottom:24px">Select a CSV or TSV file exported from your wine app.</div>`));
+    const pickBtn=html(`<button class="btn-primary" style="width:100%;margin-bottom:12px">📂 Choose File</button>`);
+    pickBtn.onclick=()=>{
+      const inp=document.createElement("input"); inp.type="file"; inp.accept=".csv,.tsv,.txt,text/plain,text/csv";
+      inp.onchange=e=>{
+        const file=e.target.files[0]; if(!file) return;
+        const reader=new FileReader();
+        reader.onload=ev=>{ importRows=parseWineCSV(ev.target.result); importScreen="preview"; renderImportModal(); };
+        reader.readAsText(file);
+      };
+      inp.click();
+    };
+    sheet.appendChild(pickBtn);
+    const cancelBtn=html(`<button class="btn-ghost" style="width:100%">Cancel</button>`);
+    cancelBtn.onclick=()=>root.innerHTML="";
+    sheet.appendChild(cancelBtn);
+  }
+
+  else if(importScreen==="preview"){
+    sheet.appendChild(html(`<div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:800;color:var(--ink);margin-bottom:6px">Review Import</div>`));
+    sheet.appendChild(html(`<div style="color:var(--brown-mid);font-size:14px;margin-bottom:16px">Found <strong>${importRows.length} wine${importRows.length!==1?"s":""}</strong> to import.</div>`));
+    const list=document.createElement("div");
+    list.style.cssText="max-height:280px;overflow-y:auto;margin-bottom:20px;border:1px solid var(--border);border-radius:12px";
+    importRows.forEach((w,i)=>{
+      list.appendChild(html(`<div style="padding:10px 14px;${i>0?"border-top:1px solid var(--border)":""}">
+        <div style="font-weight:600;font-size:14px;color:var(--ink)">${w.wine}</div>
+        <div style="font-size:12px;color:var(--brown-mid)">${w.winery}${w.vintage?" · "+w.vintage:""}${w.color?" · "+w.color:""}</div>
+      </div>`));
+    });
+    sheet.appendChild(list);
+    if(importRows.length===0){
+      sheet.appendChild(html(`<div style="color:var(--red-wine);font-size:13px;margin-bottom:16px;padding:10px 14px;background:rgba(139,38,53,0.06);border-radius:10px">⚠️ No wines found. Check that the file has a "Wine Name" column.</div>`));
+    }
+    const importBtn=html(`<button class="btn-primary" style="width:100%;margin-bottom:10px"${importRows.length===0?" disabled":""}>Import ${importRows.length} Wine${importRows.length!==1?"s":""}</button>`);
+    importBtn.onclick=async()=>{
+      importScreen="importing"; renderImportModal();
+      let count=0;
+      for(const w of importRows){
+        w.id=String(nextId++);
+        await saveWine(w);
+        count++;
+        const prog=document.getElementById("import-progress");
+        if(prog) prog.textContent=`Saving… ${count} / ${importRows.length}`;
+      }
+      importScreen="done"; renderImportModal();
+    };
+    sheet.appendChild(importBtn);
+    const cancelBtn=html(`<button class="btn-ghost" style="width:100%">Cancel</button>`);
+    cancelBtn.onclick=()=>root.innerHTML="";
+    sheet.appendChild(cancelBtn);
+  }
+
+  else if(importScreen==="importing"){
+    sheet.appendChild(html(`<div style="text-align:center;padding:30px 0">
+      <div class="spinner" style="width:32px;height:32px;margin:0 auto 16px"></div>
+      <div style="font-family:'Cormorant Garamond',serif;font-size:20px;color:var(--gold);font-weight:700;margin-bottom:8px">Importing wines…</div>
+      <div id="import-progress" style="color:var(--brown-mid);font-size:14px">Saving…</div>
+    </div>`));
+  }
+
+  else if(importScreen==="done"){
+    sheet.appendChild(html(`<div style="text-align:center;padding:30px 0">
+      <div style="font-size:48px;margin-bottom:12px">✅</div>
+      <div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:800;color:var(--ink);margin-bottom:8px">Import Complete!</div>
+      <div style="color:var(--brown-mid);font-size:14px">${importRows.length} wine${importRows.length!==1?"s":""} added to your collection.</div>
+    </div>`));
+    const doneBtn=html(`<button class="btn-primary" style="width:100%;margin-top:20px">Done</button>`);
+    doneBtn.onclick=()=>root.innerHTML="";
+    sheet.appendChild(doneBtn);
+  }
+
+  overlay.appendChild(sheet);
+  root.appendChild(overlay);
+}
+
 async function scanLabel(base64) {
   const res = await fetch(`${WORKER_URL}/scan`, {
     method:"POST", headers:{"Content-Type":"application/json"},
@@ -1176,13 +1330,22 @@ function renderAddWineModal() {
     sheet.appendChild(scanBox);
 
     // Manual
-    const manualBox=html(`<div style="background:var(--surface-2);border:1px solid var(--border);border-radius:16px;padding:20px;text-align:center;cursor:pointer">
+    const manualBox=html(`<div style="background:var(--surface-2);border:1px solid var(--border);border-radius:16px;padding:20px;text-align:center;cursor:pointer;margin-bottom:12px">
       <div style="font-size:32px;margin-bottom:8px">✏️</div>
       <div style="font-family:'Cormorant Garamond',serif;font-size:19px;font-weight:700;color:var(--brown-mid);margin-bottom:4px">Enter Manually</div>
       <div style="color:var(--brown-pale);font-size:13px">Type in the wine details yourself.</div>
     </div>`);
     manualBox.onclick=()=>{ addWineScreen="form"; renderAddWineModal(); };
     sheet.appendChild(manualBox);
+
+    // Import CSV
+    const importBox=html(`<div style="background:var(--surface-2);border:1px solid var(--border);border-radius:16px;padding:20px;text-align:center;cursor:pointer">
+      <div style="font-size:32px;margin-bottom:8px">📋</div>
+      <div style="font-family:'Cormorant Garamond',serif;font-size:19px;font-weight:700;color:var(--brown-mid);margin-bottom:4px">Import from CSV</div>
+      <div style="color:var(--brown-pale);font-size:13px">Bulk import from a spreadsheet or wine app export.</div>
+    </div>`);
+    importBox.onclick=()=>{ root.innerHTML=""; showImportModal(); };
+    sheet.appendChild(importBox);
   }
 
   else if (addWineScreen==="scanning" || addWineScreen==="enriching" || addWineScreen==="pairings") {
