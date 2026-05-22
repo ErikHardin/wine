@@ -399,7 +399,8 @@ const SESSION_KEY = "wine_session_ts";
 const SESSION_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days in ms
 let currentTab = "cellar";
 let nextId     = Date.now();
-let trips      = {};   // { id: tripObj }
+const TRIPS_KEY = "wine_trips";
+let trips      = (() => { try { return JSON.parse(localStorage.getItem(TRIPS_KEY)||"{}"); } catch(_){ return {}; } })();
 let activeTrip = "";   // selected trip id on trip tab, or "" = All
 
 // ── Locations ────────────────────────────────────────────────────
@@ -534,7 +535,6 @@ function initFirebase() {
   onValue(ref(db,"wines"),   snap=>{ wines   =snap.val()||{}; render(); });
   onValue(ref(db,"slots"),   snap=>{ slots   =snap.val()||{}; render(); });
   onValue(ref(db,"consumed"),snap=>{ consumed=snap.val()||{}; render(); });
-  onValue(ref(db,"trips"),   snap=>{ trips   =snap.val()||{}; render(); });
 }
 
 async function saveWine(wine) {
@@ -555,8 +555,11 @@ async function clearSlot(locId, slot) {
 async function saveConsumed(entry) {
   await set(ref(db,`consumed/${entry.id}`), entry);
 }
-async function saveTrip(trip) {
-  await set(ref(db,`trips/${trip.id}`), trip);
+function saveTrip(trip) {
+  trips[trip.id] = trip;
+  try { localStorage.setItem(TRIPS_KEY, JSON.stringify(trips)); } catch(_) {}
+  // Best-effort Firebase sync (silently ignored if rules deny it)
+  set(ref(db,`trips/${trip.id}`), trip).catch(()=>{});
 }
 
 // ── Worker calls ─────────────────────────────────────────────────
@@ -991,14 +994,14 @@ function showCreateTripModal() {
   const cancel  = html(`<button class="btn-ghost" style="flex:1">Cancel</button>`);
   cancel.onclick = () => root.innerHTML = "";
   const create  = html(`<button class="btn-primary" style="flex:2">Create Trip</button>`);
-  create.onclick = async () => {
+  create.onclick = () => {
     const name = nameInp.value.trim();
     if (!name) { alert("Trip name is required."); return; }
     const trip = { id:`t_${Date.now()}`, name, capacity:parseInt(capInp.value)||0, createdAt:Date.now() };
-    create.textContent = "Creating…"; create.disabled = true;
-    await saveTrip(trip);
+    saveTrip(trip);
     activeTrip = trip.id;
     root.innerHTML = "";
+    renderTab();
   };
   actions.appendChild(cancel); actions.appendChild(create);
   sheet.appendChild(actions);
