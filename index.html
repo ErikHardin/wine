@@ -578,6 +578,54 @@ async function fetchPairingsForWine(wine) {
 let importScreen = "pick";
 let importRows   = [];
 
+function parseLocationHint(raw) {
+  const v=(raw||"").trim();
+  if(!v) return null;
+  if(/^[Ff]ridge$/.test(v)) return {locId:"fridge",slotHint:"any"};
+  if(/^[A-Ga-g]$/.test(v)) return {locId:"winefridge",slotHint:v.toUpperCase()};
+  const n=parseInt(v);
+  if(!isNaN(n)&&n>=1&&n<=64) return {locId:"closet",slotHint:String(n)};
+  return null;
+}
+
+function closetSlotKey(n) {
+  const secs=[{id:"S1",start:1,rows:2},{id:"S2",start:17,rows:3},{id:"S3",start:41,rows:3}];
+  for(const sec of secs){
+    const end=sec.start+sec.rows*8-1;
+    if(n>=sec.start&&n<=end){
+      const offset=n-sec.start;
+      const r=Math.floor(offset/8)+1;
+      return `${sec.id}-R${r}-${String(n).padStart(2,"0")}`;
+    }
+  }
+  return null;
+}
+
+function findImportSlot(locId, slotHint, pending) {
+  const locSlots=slots[locId]||{};
+  const taken=s=>locSlots[s]||(pending[locId]||{})[s];
+  const allSlots=LOCATIONS[locId].slots;
+  if(locId==="winefridge"){
+    for(const s of allSlots) if(s[0]===slotHint&&!taken(s)) return s;
+    for(const s of allSlots) if(!taken(s)) return s; // section full, try anywhere
+    return null;
+  }
+  if(locId==="closet"){
+    const key=closetSlotKey(parseInt(slotHint));
+    return key&&!taken(key)?key:null;
+  }
+  for(const s of allSlots) if(!taken(s)) return s; // fridge - any slot
+  return null;
+}
+
+function locHintLabel(loc) {
+  if(!loc) return "";
+  if(loc.locId==="fridge")     return "🧊 Fridge";
+  if(loc.locId==="winefridge") return `🍷 Wine Fridge §${loc.slotHint}`;
+  if(loc.locId==="closet")     return `🗄️ Closet #${loc.slotHint}`;
+  return "";
+}
+
 function parseWineCSV(text) {
   const sep = text.includes("\t") ? "\t" : ",";
   const lines = text.trim().split(/\r?\n/);
@@ -596,6 +644,7 @@ function parseWineCSV(text) {
     drinkFrom: idx("Drink Window Start"),
     drinkTo:   idx("Drink Window End"),
     addedOn:   idx("Added On"),
+    locRaw:    idx("Custom Bottle Location"),
   };
   const normalizeColor = s => {
     const v=(s||"").toLowerCase().trim();
@@ -634,6 +683,7 @@ function parseWineCSV(text) {
       notes:     get(cells,colMap.notes),
       pairings:null,drinkWindow:null,servingTip:null,pairingsAt:null,
       createdAt: parseAddedDate(get(cells,colMap.addedOn)),
+      _loc:      parseLocationHint(get(cells,colMap.locRaw)),
     });
   }
   return results;
@@ -674,11 +724,15 @@ function renderImportModal() {
   else if(importScreen==="preview"){
     sheet.appendChild(html(`<div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:800;color:var(--ink);margin-bottom:6px">Review Import</div>`));
     sheet.appendChild(html(`<div style="color:var(--brown-mid);font-size:14px;margin-bottom:16px">Found <strong>${importRows.length} wine${importRows.length!==1?"s":""}</strong> to import.</div>`));
+    const withLoc=importRows.filter(w=>w._loc).length;
+    const locNote=withLoc>0?` · ${withLoc} with location`:"";
+    sheet.appendChild(html(`<div style="color:var(--brown-mid);font-size:13px;margin-bottom:12px">Will also fetch food pairings for each wine.${locNote?`<br><span style="color:var(--gold)">${locNote} — will be auto-assigned to storage.</span>`:""}</div>`));
     const list=document.createElement("div");
-    list.style.cssText="max-height:280px;overflow-y:auto;margin-bottom:20px;border:1px solid var(--border);border-radius:12px";
+    list.style.cssText="max-height:240px;overflow-y:auto;margin-bottom:20px;border:1px solid var(--border);border-radius:12px";
     importRows.forEach((w,i)=>{
+      const locLabel=w._loc?`<span style="float:right;font-size:11px;color:var(--gold);font-weight:600">${locHintLabel(w._loc)}</span>`:"";
       list.appendChild(html(`<div style="padding:10px 14px;${i>0?"border-top:1px solid var(--border)":""}">
-        <div style="font-weight:600;font-size:14px;color:var(--ink)">${w.wine}</div>
+        <div style="font-weight:600;font-size:14px;color:var(--ink)">${w.wine}${locLabel}</div>
         <div style="font-size:12px;color:var(--brown-mid)">${w.winery}${w.vintage?" · "+w.vintage:""}${w.color?" · "+w.color:""}</div>
       </div>`));
     });
@@ -689,13 +743,30 @@ function renderImportModal() {
     const importBtn=html(`<button class="btn-primary" style="width:100%;margin-bottom:10px"${importRows.length===0?" disabled":""}>Import ${importRows.length} Wine${importRows.length!==1?"s":""}</button>`);
     importBtn.onclick=async()=>{
       importScreen="importing"; renderImportModal();
+      const setProgress=t=>{ const p=document.getElementById("import-progress"); if(p) p.textContent=t; };
+      const pending={};
+      // Phase 1: save wines + assign slots
       let count=0;
       for(const w of importRows){
         w.id=String(nextId++);
         await saveWine(w);
+        if(w._loc){
+          const slot=findImportSlot(w._loc.locId,w._loc.slotHint,pending);
+          if(slot){
+            await saveSlot(w._loc.locId,slot,w.id);
+            if(!pending[w._loc.locId]) pending[w._loc.locId]={};
+            pending[w._loc.locId][slot]=true;
+          }
+        }
         count++;
-        const prog=document.getElementById("import-progress");
-        if(prog) prog.textContent=`Saving… ${count} / ${importRows.length}`;
+        setProgress(`Saving wines… ${count} / ${importRows.length}`);
+      }
+      // Phase 2: fetch pairings for each wine
+      let pairCount=0;
+      for(const w of importRows){
+        setProgress(`Fetching pairings… ${pairCount} / ${importRows.length}`);
+        await fetchPairingsForWine(w);
+        pairCount++;
       }
       importScreen="done"; renderImportModal();
     };
@@ -708,16 +779,18 @@ function renderImportModal() {
   else if(importScreen==="importing"){
     sheet.appendChild(html(`<div style="text-align:center;padding:30px 0">
       <div class="spinner" style="width:32px;height:32px;margin:0 auto 16px"></div>
-      <div style="font-family:'Cormorant Garamond',serif;font-size:20px;color:var(--gold);font-weight:700;margin-bottom:8px">Importing wines…</div>
-      <div id="import-progress" style="color:var(--brown-mid);font-size:14px">Saving…</div>
+      <div style="font-family:'Cormorant Garamond',serif;font-size:20px;color:var(--gold);font-weight:700;margin-bottom:8px">Importing…</div>
+      <div id="import-progress" style="color:var(--brown-mid);font-size:14px">Saving wines…</div>
+      <div style="color:var(--brown-pale);font-size:12px;margin-top:6px">Pairings will be fetched after saving — this may take a minute.</div>
     </div>`));
   }
 
   else if(importScreen==="done"){
+    const withLoc=importRows.filter(w=>w._loc).length;
     sheet.appendChild(html(`<div style="text-align:center;padding:30px 0">
       <div style="font-size:48px;margin-bottom:12px">✅</div>
       <div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:800;color:var(--ink);margin-bottom:8px">Import Complete!</div>
-      <div style="color:var(--brown-mid);font-size:14px">${importRows.length} wine${importRows.length!==1?"s":""} added to your collection.</div>
+      <div style="color:var(--brown-mid);font-size:14px">${importRows.length} wine${importRows.length!==1?"s":""} added${withLoc>0?`, ${withLoc} assigned to storage`:""}, food pairings fetched.</div>
     </div>`));
     const doneBtn=html(`<button class="btn-primary" style="width:100%;margin-top:20px">Done</button>`);
     doneBtn.onclick=()=>root.innerHTML="";
