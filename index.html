@@ -2254,9 +2254,22 @@ function renderAssignModal(wine) {
         const sel   = assignSlot===s;
         const lbl   = isCloset ? s.split("-").pop() : s;
         const btn   = document.createElement("button");
-        btn.style.cssText=`aspect-ratio:1;border-radius:5px;border:${sel?`2px solid ${loc.color}`:taken?"1px solid var(--border-2)":"1px solid var(--border)"};background:${sel?loc.color+"22":taken?"rgba(107,61,30,0.04)":"var(--surface-3)"};color:${sel?loc.color:taken?"var(--brown-pale)":"var(--brown-pale)"};font-size:${taken?10:8}px;font-family:monospace;font-weight:700;cursor:${taken?"not-allowed":"pointer"};display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0;transition:all 0.12s`;
-        btn.textContent=taken?"🍷":lbl;
-        if(!taken) btn.onclick=()=>{ assignSlot=s; renderAssignModal(wine); };
+        btn.style.cssText=`aspect-ratio:1;border-radius:5px;border:${sel?`2px solid ${loc.color}`:taken?"1px solid rgba(139,0,0,0.4)":"1px solid var(--border)"};background:${sel?loc.color+"22":taken?"rgba(139,0,0,0.15)":"var(--surface-3)"};color:${sel?loc.color:taken?"#8b0000":"var(--brown-pale)"};font-size:${taken?10:8}px;font-family:monospace;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0;transition:all 0.12s`;
+        btn.innerHTML=taken?`<div style="font-size:14px;line-height:1">🍷</div><div style="font-size:8px;line-height:1.2;margin-top:1px">${lbl}</div>`:lbl;
+        if(taken){
+          btn.onclick=()=>{
+            const takenWine=wines[wid];
+            showConsumedConfirm(takenWine,async()=>{
+              const entry={...takenWine,locId:assignLoc,slot:s,consumedAt:Date.now()};
+              await clearSlot(assignLoc,s);
+              await saveConsumed(entry);
+              assignSlot=s;
+              renderAssignModal(wine);
+            });
+          };
+        } else {
+          btn.onclick=()=>{ assignSlot=s; renderAssignModal(wine); };
+        }
         grid.appendChild(btn);
       });
       secDiv.appendChild(grid);
@@ -2285,6 +2298,33 @@ function renderAssignModal(wine) {
   sheet.appendChild(saveBtn);
   overlay.appendChild(sheet);
   root.appendChild(overlay);
+}
+
+// ── CONSUMED CONFIRM ─────────────────────────────────────────────
+function showConsumedConfirm(takenWine,onConfirm){
+  const overlay=document.createElement("div");
+  overlay.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10005;display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box";
+  const card=document.createElement("div");
+  card.style.cssText="background:var(--cream);border-radius:16px;padding:24px;max-width:340px;width:100%";
+  const title=document.createElement("div");
+  title.style.cssText="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:800;color:var(--ink);margin-bottom:8px";
+  title.textContent="Spot Occupied";
+  const body=document.createElement("div");
+  body.style.cssText="color:var(--brown-light);font-size:14px;margin-bottom:20px;line-height:1.5";
+  const wineName=`${takenWine.wine}${takenWine.vintage?" "+takenWine.vintage:""}`;
+  body.innerHTML=`<strong style="color:var(--ink)">${wineName}</strong> by ${takenWine.winery} is already in this spot.<br><br>Has this bottle been consumed?`;
+  const btnRow=document.createElement("div");
+  btnRow.style.cssText="display:flex;gap:8px";
+  const cancelBtn=document.createElement("button");
+  cancelBtn.className="btn-ghost"; cancelBtn.style.flex="1"; cancelBtn.textContent="Cancel";
+  cancelBtn.onclick=()=>document.body.removeChild(overlay);
+  const confirmBtn=document.createElement("button");
+  confirmBtn.className="btn-danger"; confirmBtn.style.cssText="flex:2;padding:12px;font-size:13px;font-weight:700";
+  confirmBtn.textContent="🍷 Mark as Consumed";
+  confirmBtn.onclick=async()=>{ document.body.removeChild(overlay); await onConfirm(); };
+  btnRow.appendChild(cancelBtn); btnRow.appendChild(confirmBtn);
+  card.appendChild(title); card.appendChild(body); card.appendChild(btnRow);
+  overlay.appendChild(card); document.body.appendChild(overlay);
 }
 
 // ── WINE PROFILE ─────────────────────────────────────────────────
