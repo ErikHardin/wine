@@ -8,15 +8,15 @@ const DB_BASE    = "https://wine-5ab2d-default-rtdb.firebaseio.com";
 const WINE_COLORS = ["Red", "White", "Rosé", "Sparkling"];
 
 const PALETTE = {
-  bg:        new Color("#1a1a1a"),
-  text:      new Color("#f0ece0"),
-  muted:     new Color("#a09070"),
-  gold:      new Color("#c9a84c"),
-  barTrack:  new Color("#333333"),
-  Red:       new Color("#8b2635"),
-  White:     new Color("#b8960b"),
-  "Rosé":    new Color("#c06070"),
-  Sparkling: new Color("#4a80a0"),
+  bg:        new Color("#ede4d0"),
+  text:      new Color("#1e1408"),
+  muted:     new Color("#8a7a6a"),
+  gold:      new Color("#c8602a"),
+  barTrack:  new Color("#d0c4ae"),
+  Red:       new Color("#9b3040"),
+  White:     new Color("#a07820"),
+  "Rosé":    new Color("#b05868"),
+  Sparkling: new Color("#3a6888"),
 };
 
 // ─── Data fetching ────────────────────────────────────────────────────────────
@@ -226,7 +226,7 @@ function buildErrorWidget(msg) {
 
   const t2 = widget.addText(`⚠ ${msg}`);
   t2.font      = Font.systemFont(12);
-  t2.textColor = new Color("#c06070");
+  t2.textColor = new Color("#b03030");
 
   widget.addSpacer(4);
 
