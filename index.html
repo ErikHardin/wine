@@ -1977,19 +1977,34 @@ function renderAddWineModal() {
     }
 
     // Critic notes preview (pre-fetched during scan alongside pairings)
-    if(addWineForm._criticNotes?.length) {
+    if(addWineForm._criticNotes?.length){
+      const notes=addWineForm._criticNotes;
+      let addCriticIdx=0;
       const cnWrap=document.createElement("div");
       cnWrap.appendChild(html(`<div class="field-label">Critic Notes</div>`));
-      addWineForm._criticNotes.forEach((n,i)=>{
-        const card=document.createElement("div");
-        card.style.cssText=`background:rgba(139,38,53,0.05);border:1px solid rgba(139,38,53,0.12);border-radius:10px;padding:10px 12px;${i>0?"margin-top:7px":"margin-top:6px"}`;
-        card.appendChild(html(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-          <span style="color:var(--brown-mid);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">${n.source}</span>
-          ${n.score?`<span style="color:${scoreColor(n.score)};font-size:11px;font-weight:800;font-family:monospace">${n.score} pts</span>`:""}
-        </div>`));
-        card.appendChild(html(`<div style="color:var(--brown-mid);font-size:12px;line-height:1.6;font-style:italic">${n.note}</div>`));
-        cnWrap.appendChild(card);
-      });
+      const cnCard=document.createElement("div");
+      cnCard.style.cssText="background:rgba(139,38,53,0.05);border:1px solid rgba(139,38,53,0.12);border-radius:10px;padding:10px 12px;";
+      const renderAddCriticCard=()=>{
+        cnCard.innerHTML="";
+        const n=notes[addCriticIdx];
+        const navRow=document.createElement("div"); navRow.style.cssText="display:flex;align-items:center;gap:8px;margin-bottom:6px";
+        if(notes.length>1){
+          const prev=html(`<button style="background:none;border:none;color:var(--brown-pale);font-size:18px;cursor:pointer;padding:0 2px;line-height:1">‹</button>`);
+          prev.onclick=()=>{ addCriticIdx=(addCriticIdx-1+notes.length)%notes.length; renderAddCriticCard(); };
+          navRow.appendChild(prev);
+        }
+        navRow.appendChild(html(`<div style="flex:1;color:var(--brown-mid);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">${n.source}</div>`));
+        if(n.score) navRow.appendChild(html(`<span style="color:${scoreColor(n.score)};font-size:11px;font-weight:800;font-family:monospace">${n.score} pts</span>`));
+        if(notes.length>1){
+          const next=html(`<button style="background:none;border:none;color:var(--brown-pale);font-size:18px;cursor:pointer;padding:0 2px;line-height:1">›</button>`);
+          next.onclick=()=>{ addCriticIdx=(addCriticIdx+1)%notes.length; renderAddCriticCard(); };
+          navRow.appendChild(next);
+        }
+        cnCard.appendChild(navRow);
+        cnCard.appendChild(html(`<div style="color:var(--brown-mid);font-size:12px;line-height:1.6;font-style:italic">${n.note}</div>`));
+      };
+      renderAddCriticCard();
+      cnWrap.appendChild(cnCard);
       form.appendChild(cnWrap);
     }
 
@@ -2161,18 +2176,33 @@ function renderAddWineModal() {
     }
     // Critic notes preview
     if(addWineForm._criticNotes?.length){
+      const notes=addWineForm._criticNotes;
+      let qCriticIdx=0;
       const cnWrap=document.createElement("div");
       cnWrap.appendChild(html(`<div class="field-label">Critic Notes</div>`));
-      addWineForm._criticNotes.forEach((n,i)=>{
-        const card=document.createElement("div");
-        card.style.cssText=`background:rgba(139,38,53,0.05);border:1px solid rgba(139,38,53,0.12);border-radius:10px;padding:10px 12px;${i>0?"margin-top:7px":"margin-top:6px"}`;
-        card.appendChild(html(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-          <span style="color:var(--brown-mid);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">${n.source}</span>
-          ${n.score?`<span style="color:${scoreColor(n.score)};font-size:11px;font-weight:800;font-family:monospace">${n.score} pts</span>`:""}
-        </div>`));
-        card.appendChild(html(`<div style="color:var(--brown-mid);font-size:12px;line-height:1.6;font-style:italic">${n.note}</div>`));
-        cnWrap.appendChild(card);
-      });
+      const cnCard=document.createElement("div");
+      cnCard.style.cssText="background:rgba(139,38,53,0.05);border:1px solid rgba(139,38,53,0.12);border-radius:10px;padding:10px 12px;";
+      const renderQCriticCard=()=>{
+        cnCard.innerHTML="";
+        const n=notes[qCriticIdx];
+        const navRow=document.createElement("div"); navRow.style.cssText="display:flex;align-items:center;gap:8px;margin-bottom:6px";
+        if(notes.length>1){
+          const prev=html(`<button style="background:none;border:none;color:var(--brown-pale);font-size:18px;cursor:pointer;padding:0 2px;line-height:1">‹</button>`);
+          prev.onclick=()=>{ qCriticIdx=(qCriticIdx-1+notes.length)%notes.length; renderQCriticCard(); };
+          navRow.appendChild(prev);
+        }
+        navRow.appendChild(html(`<div style="flex:1;color:var(--brown-mid);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">${n.source}</div>`));
+        if(n.score) navRow.appendChild(html(`<span style="color:${scoreColor(n.score)};font-size:11px;font-weight:800;font-family:monospace">${n.score} pts</span>`));
+        if(notes.length>1){
+          const next=html(`<button style="background:none;border:none;color:var(--brown-pale);font-size:18px;cursor:pointer;padding:0 2px;line-height:1">›</button>`);
+          next.onclick=()=>{ qCriticIdx=(qCriticIdx+1)%notes.length; renderQCriticCard(); };
+          navRow.appendChild(next);
+        }
+        cnCard.appendChild(navRow);
+        cnCard.appendChild(html(`<div style="color:var(--brown-mid);font-size:12px;line-height:1.6;font-style:italic">${n.note}</div>`));
+      };
+      renderQCriticCard();
+      cnWrap.appendChild(cnCard);
       form.appendChild(cnWrap);
     }
     sheet.appendChild(form);
@@ -2475,18 +2505,26 @@ function showWineProfile(wine) {
   </div>`);
   const criticsContent=document.createElement("div");
   criticsBox.appendChild(criticsContent);
+  let criticIdx=0;
   function renderCriticCards(notes){
     criticsContent.innerHTML="";
-    notes.forEach((n,i)=>{
-      if(i>0) criticsContent.appendChild(html(`<div class="divider"></div>`));
-      const card=document.createElement("div");
-      card.appendChild(html(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
-        <div style="color:var(--brown-mid);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">${n.source}</div>
-        ${n.score?`<span style="background:${scoreColor(n.score)}18;border:1px solid ${scoreColor(n.score)}44;color:${scoreColor(n.score)};font-size:11px;font-weight:800;font-family:monospace;padding:2px 8px;border-radius:8px">${n.score}</span>`:""}
-      </div>`));
-      card.appendChild(html(`<div style="color:var(--brown-mid);font-size:13px;line-height:1.7;font-style:italic">${n.note}</div>`));
-      criticsContent.appendChild(card);
-    });
+    if(!notes?.length) return;
+    const n=notes[criticIdx];
+    const navRow=document.createElement("div"); navRow.style.cssText="display:flex;align-items:center;gap:8px;margin-bottom:8px";
+    if(notes.length>1){
+      const prev=html(`<button style="background:none;border:none;color:var(--brown-pale);font-size:20px;cursor:pointer;padding:0 2px;line-height:1">‹</button>`);
+      prev.onclick=()=>{ criticIdx=(criticIdx-1+notes.length)%notes.length; renderCriticCards(notes); };
+      navRow.appendChild(prev);
+    }
+    navRow.appendChild(html(`<div style="flex:1;color:var(--brown-mid);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">${n.source}</div>`));
+    if(n.score) navRow.appendChild(html(`<span style="background:${scoreColor(n.score)}18;border:1px solid ${scoreColor(n.score)}44;color:${scoreColor(n.score)};font-size:11px;font-weight:800;font-family:monospace;padding:2px 8px;border-radius:8px">${n.score}</span>`));
+    if(notes.length>1){
+      const next=html(`<button style="background:none;border:none;color:var(--brown-pale);font-size:20px;cursor:pointer;padding:0 2px;line-height:1">›</button>`);
+      next.onclick=()=>{ criticIdx=(criticIdx+1)%notes.length; renderCriticCards(notes); };
+      navRow.appendChild(next);
+    }
+    criticsContent.appendChild(navRow);
+    criticsContent.appendChild(html(`<div style="color:var(--brown-mid);font-size:13px;line-height:1.7;font-style:italic">${n.note}</div>`));
   }
   if(wine.criticNotes?.length){
     renderCriticCards(wine.criticNotes);
@@ -2647,18 +2685,29 @@ function renderEditWineModal(wine) {
   // Critic notes reference (auto-fetched, read-only)
   const editCriticWrap=document.createElement("div");
   const editCriticContent=document.createElement("div");
+  let editCriticIdx=0;
   function renderEditCriticCards(notes){
     editCriticContent.innerHTML="";
-    notes.forEach((n,i)=>{
-      const card=document.createElement("div");
-      card.style.cssText=`background:rgba(139,38,53,0.05);border:1px solid rgba(139,38,53,0.12);border-radius:10px;padding:10px 12px;${i>0?"margin-top:7px":"margin-top:6px"}`;
-      card.appendChild(html(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-        <span style="color:var(--brown-mid);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">${n.source}</span>
-        ${n.score?`<span style="color:${scoreColor(n.score)};font-size:11px;font-weight:800;font-family:monospace">${n.score} pts</span>`:""}
-      </div>`));
-      card.appendChild(html(`<div style="color:var(--brown-mid);font-size:12px;line-height:1.6;font-style:italic">${n.note}</div>`));
-      editCriticContent.appendChild(card);
-    });
+    if(!notes?.length) return;
+    const n=notes[editCriticIdx];
+    const card=document.createElement("div");
+    card.style.cssText="background:rgba(139,38,53,0.05);border:1px solid rgba(139,38,53,0.12);border-radius:10px;padding:10px 12px;";
+    const navRow=document.createElement("div"); navRow.style.cssText="display:flex;align-items:center;gap:8px;margin-bottom:6px";
+    if(notes.length>1){
+      const prev=html(`<button style="background:none;border:none;color:var(--brown-pale);font-size:18px;cursor:pointer;padding:0 2px;line-height:1">‹</button>`);
+      prev.onclick=()=>{ editCriticIdx=(editCriticIdx-1+notes.length)%notes.length; renderEditCriticCards(notes); };
+      navRow.appendChild(prev);
+    }
+    navRow.appendChild(html(`<div style="flex:1;color:var(--brown-mid);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">${n.source}</div>`));
+    if(n.score) navRow.appendChild(html(`<span style="color:${scoreColor(n.score)};font-size:11px;font-weight:800;font-family:monospace">${n.score} pts</span>`));
+    if(notes.length>1){
+      const next=html(`<button style="background:none;border:none;color:var(--brown-pale);font-size:18px;cursor:pointer;padding:0 2px;line-height:1">›</button>`);
+      next.onclick=()=>{ editCriticIdx=(editCriticIdx+1)%notes.length; renderEditCriticCards(notes); };
+      navRow.appendChild(next);
+    }
+    card.appendChild(navRow);
+    card.appendChild(html(`<div style="color:var(--brown-mid);font-size:12px;line-height:1.6;font-style:italic">${n.note}</div>`));
+    editCriticContent.appendChild(card);
   }
   if(wine.criticNotes?.length){
     editCriticWrap.appendChild(html(`<div class="field-label">Critic Notes <span style="font-size:9px;color:var(--brown-pale);text-transform:none;letter-spacing:0">(reference)</span></div>`));
