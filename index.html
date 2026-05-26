@@ -644,13 +644,24 @@ async function fetchPairingsForWine(wine) {
     const data = await callPairingsAPI(wine.winery, wine.wine, wine.vintage, wine.varietal, wine.region);
     if (data.pairings) {
       await updateWine(wine.id, {
-        pairings:    data.pairings,
-        drinkWindow: data.drinkWindow||null,
-        servingTip:  data.servingTip||null,
-        pairingsAt:  Date.now(),
+        pairings:      data.pairings,
+        drinkWindow:   data.drinkWindow  ||null,
+        servingTip:    data.servingTip   ||null,
+        pairingsAt:    Date.now(),
+        criticNotes:   data.criticNotes  ||null,
+        criticNotesAt: data.criticNotes  ?Date.now():null,
       });
     }
   } catch(e) { console.warn("Pairings fetch failed:", e); }
+}
+
+async function fetchCriticNotesForWine(wine) {
+  try {
+    const data = await callPairingsAPI(wine.winery, wine.wine, wine.vintage, wine.varietal, wine.region);
+    if (data.criticNotes?.length) {
+      await updateWine(wine.id, {criticNotes: data.criticNotes, criticNotesAt: Date.now()});
+    }
+  } catch(e) { console.warn("Critic notes fetch failed:", e); }
 }
 
 // ── CSV IMPORT ────────────────────────────────────────────────────
@@ -1588,7 +1599,7 @@ let scanQueueSaved = 0;      // bottles saved so far in this multi-scan session
 
 function showAddWineModal() {
   addWineScreen     = "choose";
-  addWineForm       = {winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",score:"",drinkFrom:"",drinkTo:"",notes:"",_enrichNote:null,_pairings:null,_drinkWindow:null,_servingTip:null,_tripId:activeTrip||""};
+  addWineForm       = {winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",score:"",drinkFrom:"",drinkTo:"",notes:"",_enrichNote:null,_pairings:null,_drinkWindow:null,_servingTip:null,_criticNotes:null,_tripId:activeTrip||""};
   addWineScanPreview= null;
   addWineScanError  = null;
   scanQueue         = [];
@@ -1600,7 +1611,7 @@ function showAddWineModal() {
 
 // Sequential single-bottle scanner used by "Scan Multiple Bottles"
 function startMultiScanCamera() {
-  addWineForm={winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",score:"",drinkFrom:"",drinkTo:"",notes:"",_enrichNote:null,_pairings:null,_drinkWindow:null,_servingTip:null,_tripId:activeTrip||""};
+  addWineForm={winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",score:"",drinkFrom:"",drinkTo:"",notes:"",_enrichNote:null,_pairings:null,_drinkWindow:null,_servingTip:null,_criticNotes:null,_tripId:activeTrip||""};
   addWineScanPreview=null; addWineScanError=null;
   const inp=document.createElement("input"); inp.type="file"; inp.accept="image/*"; inp.capture="environment";
   inp.onchange=async e=>{
@@ -1634,7 +1645,7 @@ function startMultiScanCamera() {
         addWineScreen="pairings"; renderAddWineModal();
         try {
           const pd=await callPairingsAPI(addWineForm.winery,addWineForm.wine,addWineForm.vintage,addWineForm.varietal,addWineForm.region);
-          if(pd.pairings){addWineForm._pairings=pd.pairings; addWineForm._drinkWindow=pd.drinkWindow||null; addWineForm._servingTip=pd.servingTip||null;}
+          if(pd.pairings){addWineForm._pairings=pd.pairings; addWineForm._drinkWindow=pd.drinkWindow||null; addWineForm._servingTip=pd.servingTip||null; addWineForm._criticNotes=pd.criticNotes||null;}
         } catch(_){}
         addWineScreen="queue-form"; renderAddWineModal();
       } catch(_){addWineScanError="Scan failed — fill in manually."; addWineScreen="form"; renderAddWineModal();}
@@ -1712,6 +1723,7 @@ function renderAddWineModal() {
                 addWineForm._pairings    = pd.pairings;
                 addWineForm._drinkWindow = pd.drinkWindow||null;
                 addWineForm._servingTip  = pd.servingTip||null;
+                addWineForm._criticNotes = pd.criticNotes||null;
               }
             } catch(e) { console.warn("Pairings fetch failed, continuing:", e); }
             addWineScreen="form"; renderAddWineModal();
@@ -1753,7 +1765,7 @@ function renderAddWineModal() {
               winesList=[result];
             }
             // Build a form object for each detected wine
-            const mkForm=()=>({winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",score:"",drinkFrom:"",drinkTo:"",notes:"",_enrichNote:null,_pairings:null,_drinkWindow:null,_servingTip:null,_tripId:activeTrip||""});
+            const mkForm=()=>({winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",score:"",drinkFrom:"",drinkTo:"",notes:"",_enrichNote:null,_pairings:null,_drinkWindow:null,_servingTip:null,_criticNotes:null,_tripId:activeTrip||""});
             scanQueue=winesList.map(w=>{
               const f=mkForm();
               f.winery=w.winery||""; f.wine=w.wine||""; f.vintage=w.vintage||"";
@@ -1783,7 +1795,7 @@ function renderAddWineModal() {
               addWineScreen="pairings"; renderAddWineModal();
               try {
                 const pd=await callPairingsAPI(q.winery,q.wine,q.vintage,q.varietal,q.region);
-                if(pd.pairings){q._pairings=pd.pairings; q._drinkWindow=pd.drinkWindow||null; q._servingTip=pd.servingTip||null;}
+                if(pd.pairings){q._pairings=pd.pairings; q._drinkWindow=pd.drinkWindow||null; q._servingTip=pd.servingTip||null; q._criticNotes=pd.criticNotes||null;}
               } catch(_){}
             }
             // Show first confirmation screen
@@ -1964,6 +1976,23 @@ function renderAddWineModal() {
       pairWrap.appendChild(chips); form.appendChild(pairWrap);
     }
 
+    // Critic notes preview (pre-fetched during scan alongside pairings)
+    if(addWineForm._criticNotes?.length) {
+      const cnWrap=document.createElement("div");
+      cnWrap.appendChild(html(`<div class="field-label">Critic Notes</div>`));
+      addWineForm._criticNotes.forEach((n,i)=>{
+        const card=document.createElement("div");
+        card.style.cssText=`background:rgba(139,38,53,0.05);border:1px solid rgba(139,38,53,0.12);border-radius:10px;padding:10px 12px;${i>0?"margin-top:7px":"margin-top:6px"}`;
+        card.appendChild(html(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <span style="color:var(--brown-mid);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">${n.source}</span>
+          ${n.score?`<span style="color:${scoreColor(n.score)};font-size:11px;font-weight:800;font-family:monospace">${n.score} pts</span>`:""}
+        </div>`));
+        card.appendChild(html(`<div style="color:var(--brown-mid);font-size:12px;line-height:1.6;font-style:italic">${n.note}</div>`));
+        cnWrap.appendChild(card);
+      });
+      form.appendChild(cnWrap);
+    }
+
     sheet.appendChild(form);
 
     // Actions
@@ -1994,12 +2023,14 @@ function renderAddWineModal() {
         drinkWindow: addWineForm._drinkWindow ||null,
         servingTip:  addWineForm._servingTip  ||null,
         pairingsAt:  addWineForm._pairings    ?Date.now():null,
+        criticNotes:   addWineForm._criticNotes  ||null,
+        criticNotesAt: addWineForm._criticNotes  ?Date.now():null,
         createdAt:Date.now(),
       };
       save.textContent="Saving…"; save.disabled=true;
       await saveWine(wine);
       root.innerHTML="";
-      // Fetch pairings in background only if not already fetched during scan
+      // Fetch pairings (+ critic notes) in background only if not already fetched during scan
       if(!wine.pairings) fetchPairingsForWine(wine);
     };
     actions.appendChild(cancel); actions.appendChild(save);
@@ -2128,6 +2159,22 @@ function renderAddWineModal() {
       });
       pairWrap.appendChild(chips); form.appendChild(pairWrap);
     }
+    // Critic notes preview
+    if(addWineForm._criticNotes?.length){
+      const cnWrap=document.createElement("div");
+      cnWrap.appendChild(html(`<div class="field-label">Critic Notes</div>`));
+      addWineForm._criticNotes.forEach((n,i)=>{
+        const card=document.createElement("div");
+        card.style.cssText=`background:rgba(139,38,53,0.05);border:1px solid rgba(139,38,53,0.12);border-radius:10px;padding:10px 12px;${i>0?"margin-top:7px":"margin-top:6px"}`;
+        card.appendChild(html(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <span style="color:var(--brown-mid);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">${n.source}</span>
+          ${n.score?`<span style="color:${scoreColor(n.score)};font-size:11px;font-weight:800;font-family:monospace">${n.score} pts</span>`:""}
+        </div>`));
+        card.appendChild(html(`<div style="color:var(--brown-mid);font-size:12px;line-height:1.6;font-style:italic">${n.note}</div>`));
+        cnWrap.appendChild(card);
+      });
+      form.appendChild(cnWrap);
+    }
     sheet.appendChild(form);
 
     // Actions
@@ -2143,7 +2190,10 @@ function renderAddWineModal() {
       tripId:addWineForm._tripId||null,
       pairings:addWineForm._pairings||null, drinkWindow:addWineForm._drinkWindow||null,
       servingTip:addWineForm._servingTip||null,
-      pairingsAt:addWineForm._pairings?Date.now():null, createdAt:Date.now(),
+      pairingsAt:addWineForm._pairings?Date.now():null,
+      criticNotes:addWineForm._criticNotes||null,
+      criticNotesAt:addWineForm._criticNotes?Date.now():null,
+      createdAt:Date.now(),
     });
     const validate=()=>{ if(!addWineForm.winery?.trim()||!addWineForm.wine?.trim()){alert("Winery and wine name are required."); return false;} return true; };
 
@@ -2419,6 +2469,41 @@ function showWineProfile(wine) {
   }
   sheet.appendChild(aiBox);
 
+  // Critics section
+  const criticsBox=html(`<div style="background:rgba(139,38,53,0.05);border:1px solid rgba(139,38,53,0.15);border-radius:14px;padding:16px;margin-bottom:14px">
+    <div style="color:var(--red-wine);font-size:11px;letter-spacing:2px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif;margin-bottom:10px">📰 Critics</div>
+  </div>`);
+  const criticsContent=document.createElement("div");
+  criticsBox.appendChild(criticsContent);
+  function renderCriticCards(notes){
+    criticsContent.innerHTML="";
+    notes.forEach((n,i)=>{
+      if(i>0) criticsContent.appendChild(html(`<div class="divider"></div>`));
+      const card=document.createElement("div");
+      card.appendChild(html(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+        <div style="color:var(--brown-mid);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">${n.source}</div>
+        ${n.score?`<span style="background:${scoreColor(n.score)}18;border:1px solid ${scoreColor(n.score)}44;color:${scoreColor(n.score)};font-size:11px;font-weight:800;font-family:monospace;padding:2px 8px;border-radius:8px">${n.score}</span>`:""}
+      </div>`));
+      card.appendChild(html(`<div style="color:var(--brown-mid);font-size:13px;line-height:1.7;font-style:italic">${n.note}</div>`));
+      criticsContent.appendChild(card);
+    });
+  }
+  if(wine.criticNotes?.length){
+    renderCriticCards(wine.criticNotes);
+  } else {
+    criticsContent.innerHTML=`<div style="display:flex;align-items:center;gap:10px;color:var(--brown-mid);font-size:13px;font-style:italic"><div class="spinner"></div>Fetching critic notes…</div>`;
+    (async()=>{
+      try {
+        const data=await callPairingsAPI(wine.winery,wine.wine,wine.vintage,wine.varietal,wine.region);
+        if(data.criticNotes?.length){
+          await updateWine(wine.id,{criticNotes:data.criticNotes,criticNotesAt:Date.now()});
+          renderCriticCards(data.criticNotes);
+        } else { criticsContent.innerHTML=""; }
+      } catch(e){ criticsContent.innerHTML=""; }
+    })();
+  }
+  sheet.appendChild(criticsBox);
+
   // Notes
   if(wine.notes){
     sheet.appendChild(html(`<div style="background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:14px 16px;color:var(--brown-mid);font-size:14px;font-style:italic;line-height:1.6;margin-bottom:14px">"${wine.notes}"</div>`));
@@ -2558,6 +2643,42 @@ function renderEditWineModal(wine) {
   const ta=document.createElement("textarea"); ta.placeholder="Dark fruit, hints of oak…"; ta.value=editWineForm.notes;
   ta.oninput=e=>editWineForm.notes=e.target.value;
   notesWrap.appendChild(ta); form.appendChild(notesWrap);
+
+  // Critic notes reference (auto-fetched, read-only)
+  const editCriticWrap=document.createElement("div");
+  const editCriticContent=document.createElement("div");
+  function renderEditCriticCards(notes){
+    editCriticContent.innerHTML="";
+    notes.forEach((n,i)=>{
+      const card=document.createElement("div");
+      card.style.cssText=`background:rgba(139,38,53,0.05);border:1px solid rgba(139,38,53,0.12);border-radius:10px;padding:10px 12px;${i>0?"margin-top:7px":"margin-top:6px"}`;
+      card.appendChild(html(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <span style="color:var(--brown-mid);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">${n.source}</span>
+        ${n.score?`<span style="color:${scoreColor(n.score)};font-size:11px;font-weight:800;font-family:monospace">${n.score} pts</span>`:""}
+      </div>`));
+      card.appendChild(html(`<div style="color:var(--brown-mid);font-size:12px;line-height:1.6;font-style:italic">${n.note}</div>`));
+      editCriticContent.appendChild(card);
+    });
+  }
+  if(wine.criticNotes?.length){
+    editCriticWrap.appendChild(html(`<div class="field-label">Critic Notes <span style="font-size:9px;color:var(--brown-pale);text-transform:none;letter-spacing:0">(reference)</span></div>`));
+    renderEditCriticCards(wine.criticNotes);
+    editCriticWrap.appendChild(editCriticContent);
+  } else {
+    editCriticContent.innerHTML=`<div style="display:flex;align-items:center;gap:8px;color:var(--brown-pale);font-size:12px;font-style:italic;padding:4px 0"><div class="spinner"></div>Loading critic notes…</div>`;
+    editCriticWrap.appendChild(editCriticContent);
+    (async()=>{
+      try {
+        const data=await callPairingsAPI(wine.winery,wine.wine,wine.vintage,wine.varietal,wine.region);
+        if(data.criticNotes?.length){
+          await updateWine(wine.id,{criticNotes:data.criticNotes,criticNotesAt:Date.now()});
+          editCriticWrap.insertBefore(html(`<div class="field-label">Critic Notes <span style="font-size:9px;color:var(--brown-pale);text-transform:none;letter-spacing:0">(reference)</span></div>`),editCriticContent);
+          renderEditCriticCards(data.criticNotes);
+        } else { editCriticContent.innerHTML=""; }
+      } catch(e){ editCriticContent.innerHTML=""; }
+    })();
+  }
+  form.appendChild(editCriticWrap);
 
   sheet.appendChild(form);
 

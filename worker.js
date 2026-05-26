@@ -4,7 +4,7 @@
  *   POST /scan        — Claude Vision label scan (single bottle)
  *   POST /scan-multi  — Claude Vision label scan (multiple bottles)
  *   POST /enrich      — Claude AI wine data enrichment
- *   POST /pairings    — Claude AI food pairings + drink window
+ *   POST /pairings    — Claude AI food pairings + drink window + critic notes
  *
  * Environment variables (set in Cloudflare dashboard):
  *   ANTHROPIC_API_KEY  — your Anthropic API key
@@ -188,19 +188,29 @@ Rules:
 
         const response = await callClaude(env.ANTHROPIC_API_KEY, {
           model: MODEL,
-          max_tokens: 600,
+          max_tokens: 1500,
           messages: [{
             role: "user",
-            content: `You are an expert sommelier. For the wine "${wineDesc}"${details ? ` (${details})` : ""}, provide:
+            content: `You are an expert sommelier and wine critic. For the wine "${wineDesc}"${details ? ` (${details})` : ""}, provide:
 1. Exactly 5 specific food pairing suggestions (3-5 words each, specific dishes not just ingredients)
 2. A prime drinking window description (1-2 sentences)
 3. One serving tip (1 sentence, temperature and decanting)
+4. Exactly 3 critic-style tasting notes as they would appear in major wine publications. Each note 2-3 sentences in that publication's distinctive voice:
+   - Wine Advocate: bold, analytical, fruit-forward, mentions structure and aging potential
+   - Wine Spectator: accessible, balanced, food-friendly framing
+   - Vinous: lyrical, terroir-focused, emphasizes texture and energy
+   Scores within a 4-point range of each other (85-100).
 
 Respond ONLY with valid JSON, no markdown:
 {
   "pairings": ["pairing1","pairing2","pairing3","pairing4","pairing5"],
   "drinkWindow": "sentence about ideal drinking window",
-  "servingTip": "sentence about how to serve"
+  "servingTip": "sentence about how to serve",
+  "criticNotes": [
+    {"source": "Wine Advocate",  "score": 94, "note": "..."},
+    {"source": "Wine Spectator", "score": 93, "note": "..."},
+    {"source": "Vinous",         "score": 92, "note": "..."}
+  ]
 }`,
           }],
         });
