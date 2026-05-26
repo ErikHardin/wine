@@ -561,6 +561,91 @@ function scoreColor(s) {
   return "var(--brown-mid)";
 }
 
+// ── Currency support ─────────────────────────────────────────────
+const CURRENCIES = ["USD","EUR","GBP","AUD","CAD","CHF","JPY","NZD","HKD","SGD"];
+const CURRENCY_SYMBOLS = {USD:"$",EUR:"€",GBP:"£",AUD:"A$",CAD:"C$",CHF:"CHF ",JPY:"¥",NZD:"NZ$",HKD:"HK$",SGD:"S$"};
+
+function formatPrice(wine) {
+  if (!wine.price || wine.price <= 0) return "";
+  if (wine.priceCurrency && wine.priceCurrency !== "USD" && wine.priceLocal > 0) {
+    const sym = CURRENCY_SYMBOLS[wine.priceCurrency] || (wine.priceCurrency + " ");
+    return `${sym}${wine.priceLocal} (~$${Math.round(wine.price)})/btl`;
+  }
+  return `$${wine.price}/btl`;
+}
+
+async function convertToUSD(amount, fromCurrency) {
+  if (!amount || !fromCurrency || fromCurrency === "USD") return amount;
+  try {
+    const r = await fetch(`https://api.frankfurter.app/latest?from=${fromCurrency}&to=USD&amount=${amount}`);
+    const d = await r.json();
+    return Math.round((d.rates?.USD || amount) * 100) / 100;
+  } catch { return amount; }
+}
+
+// Builds the currency-aware price row and attaches it to `form`.
+// formObj must have `price`, `priceLocal`, `priceCurrency` keys.
+// queueItemRef is the scanQueue[i] object to keep in sync, or null.
+function buildPriceField(form, formObj, queueItemRef) {
+  const priceRow = document.createElement("div");
+  priceRow.style.cssText = "display:flex;gap:8px;align-items:flex-end";
+
+  // Currency select
+  const curWrap = document.createElement("div"); curWrap.style.flex = "0 0 80px";
+  curWrap.appendChild(html(`<div class="field-label">Currency</div>`));
+  const curSel = document.createElement("select"); curSel.style.cssText = "width:100%";
+  CURRENCIES.forEach(c => {
+    const o = document.createElement("option"); o.value = c;
+    o.textContent = c; if (c === formObj.priceCurrency) o.selected = true;
+    curSel.appendChild(o);
+  });
+
+  // Amount input
+  const amtWrap = document.createElement("div"); amtWrap.style.flex = "1";
+  amtWrap.appendChild(html(`<div class="field-label">Price / Bottle</div>`));
+  const amtInp = document.createElement("input");
+  amtInp.placeholder = "0.00"; amtInp.value = formObj.priceLocal || formObj.price;
+  amtInp.inputMode = "decimal";
+
+  // USD preview label
+  const preview = document.createElement("div");
+  preview.style.cssText = "font-size:11px;color:var(--brown-pale);margin-top:4px;min-height:15px";
+
+  async function refreshPreview() {
+    const cur = curSel.value;
+    const amt = parseFloat(amtInp.value) || 0;
+    if (cur === "USD" || !amt) { preview.textContent = ""; return; }
+    preview.textContent = "Converting…";
+    const usd = await convertToUSD(amt, cur);
+    preview.textContent = usd ? `≈ $${usd} USD` : "";
+  }
+
+  curSel.onchange = async () => {
+    formObj.priceCurrency = curSel.value;
+    if (queueItemRef) queueItemRef.priceCurrency = curSel.value;
+    await refreshPreview();
+  };
+
+  amtInp.oninput = e => {
+    const v = e.target.value.replace(/[^0-9.]/g, "");
+    amtInp.value = v;
+    formObj.price = v;
+    formObj.priceLocal = v;
+    if (queueItemRef) { queueItemRef.price = v; queueItemRef.priceLocal = v; }
+  };
+  amtInp.onblur = refreshPreview;
+
+  // Init preview if pre-set to non-USD
+  if (formObj.priceCurrency && formObj.priceCurrency !== "USD" && (formObj.priceLocal || formObj.price)) {
+    refreshPreview();
+  }
+
+  curWrap.appendChild(curSel); amtWrap.appendChild(amtInp);
+  priceRow.appendChild(curWrap); priceRow.appendChild(amtWrap);
+  form.appendChild(priceRow);
+  form.appendChild(preview);
+}
+
 function colorDot(c) {
   return {Red:"#8b2635",White:"#b8960b",Rosé:"#c06070",Sparkling:"#4a80a0"}[c]||"var(--brown-mid)";
 }
@@ -644,22 +729,32 @@ async function fetchPairingsForWine(wine) {
     const data = await callPairingsAPI(wine.winery, wine.wine, wine.vintage, wine.varietal, wine.region);
     if (data.pairings) {
       await updateWine(wine.id, {
-        pairings:      data.pairings,
-        drinkWindow:   data.drinkWindow  ||null,
-        servingTip:    data.servingTip   ||null,
-        pairingsAt:    Date.now(),
-        criticNotes:   data.criticNotes  ||null,
-        criticNotesAt: data.criticNotes  ?Date.now():null,
+        pairings:    data.pairings,
+        drinkWindow: data.drinkWindow ||null,
+        servingTip:  data.servingTip  ||null,
+        pairingsAt:  Date.now(),
       });
     }
   } catch(e) { console.warn("Pairings fetch failed:", e); }
 }
 
-async function fetchCriticNotesForWine(wine) {
+async function callCriticsAPI(winery, wine, vintage, varietal, region) {
+  const res = await fetch(`${WORKER_URL}/critics`, {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({winery, wine, vintage, varietal, region}),
+  });
+  return res.json();
+}
+
+async function fetchCriticsForWine(wine) {
   try {
-    const data = await callPairingsAPI(wine.winery, wine.wine, wine.vintage, wine.varietal, wine.region);
+    const data = await callCriticsAPI(wine.winery, wine.wine, wine.vintage, wine.varietal, wine.region);
     if (data.criticNotes?.length) {
-      await updateWine(wine.id, {criticNotes: data.criticNotes, criticNotesAt: Date.now()});
+      await updateWine(wine.id, {
+        criticNotes:   data.criticNotes,
+        criticSource:  data.criticSource || "ai",
+        criticNotesAt: Date.now(),
+      });
     }
   } catch(e) { console.warn("Critic notes fetch failed:", e); }
 }
@@ -869,11 +964,12 @@ function renderImportModal() {
         count++;
         setProgress(`Saving wines… ${count} / ${importRows.length}`);
       }
-      // Phase 2: fetch pairings for each wine
+      // Phase 2: fetch pairings + critics for each wine
       let pairCount=0;
       for(const w of importRows){
         setProgress(`Fetching pairings… ${pairCount} / ${importRows.length}`);
         await fetchPairingsForWine(w);
+        fetchCriticsForWine(w);
         pairCount++;
       }
       importScreen="done"; renderImportModal();
@@ -1067,6 +1163,12 @@ function showCreateTripModal() {
   const capInp = document.createElement("input"); capInp.placeholder = "12"; capInp.inputMode = "numeric";
   capWrap.appendChild(capInp); form.appendChild(capWrap);
 
+  const curWrapT = document.createElement("div");
+  curWrapT.appendChild(html(`<div class="field-label">Default Currency</div>`));
+  const curSelT = document.createElement("select");
+  CURRENCIES.forEach(c => { const o=document.createElement("option"); o.value=c; o.textContent=c; curSelT.appendChild(o); });
+  curWrapT.appendChild(curSelT); form.appendChild(curWrapT);
+
   sheet.appendChild(form);
 
   const actions = html(`<div style="display:flex;gap:10px;margin-top:20px"></div>`);
@@ -1076,7 +1178,7 @@ function showCreateTripModal() {
   create.onclick = async () => {
     const name = nameInp.value.trim();
     if (!name) { alert("Trip name is required."); return; }
-    const trip = { id:`t_${Date.now()}`, name, capacity:parseInt(capInp.value)||0, createdAt:Date.now() };
+    const trip = { id:`t_${Date.now()}`, name, capacity:parseInt(capInp.value)||0, currency:curSelT.value||"USD", createdAt:Date.now() };
     create.textContent = "Creating…"; create.disabled = true;
     try {
       await saveTrip(trip);
@@ -1108,6 +1210,10 @@ function renderTripSelectorField(form) {
   sel.onchange = e => {
     addWineForm._tripId = e.target.value;
     if (scanQueue[scanQueueIndex]) scanQueue[scanQueueIndex]._tripId = e.target.value;
+    const selTrip = trips[e.target.value];
+    addWineForm.priceCurrency = selTrip?.currency || "USD";
+    if (scanQueue[scanQueueIndex]) scanQueue[scanQueueIndex].priceCurrency = addWineForm.priceCurrency;
+    renderAddWineModal();
   };
   addWineForm._tripId = sel.value;
   wrap.appendChild(sel); form.appendChild(wrap);
@@ -1204,7 +1310,7 @@ function renderTripCard(wine) {
         <div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap">
           ${wine.varietal?`<span style="color:var(--brown-mid);font-size:12px">${wine.varietal}</span>`:""}
           <span style="color:var(--brown-mid);font-size:12px">×${wine.qty||1} bottle${wine.qty>1?"s":""}</span>
-          ${wine.price>0?`<span style="color:var(--brown-mid);font-size:12px">$${wine.price}/btl</span>`:""}
+          ${wine.price>0?`<span style="color:var(--brown-mid);font-size:12px">${formatPrice(wine)}</span>`:""}
           ${wine.pairings?.length?`<span style="color:var(--gold);font-size:12px">✓ Pairings ready</span>`:`<span style="color:var(--brown-pale);font-size:12px">⏳ Fetching pairings…</span>`}
         </div>
         ${wine.notes?`<div style="color:var(--brown-light);font-size:12px;font-style:italic;margin-top:7px">"${wine.notes}"</div>`:""}
@@ -1531,7 +1637,7 @@ function renderFindCard(wine, placement) {
         <div style="display:flex;gap:8px;margin-top:7px;flex-wrap:wrap;align-items:center">
           ${wine.varietal?`<span style="color:var(--brown-pale);font-size:12px">${wine.varietal}</span>`:""}
           ${wine.score?`<span style="color:${scoreColor(wine.score)};font-size:12px;font-weight:700">${wine.score}pts</span>`:""}
-          ${wine.price>0?`<span style="color:var(--brown-mid);font-size:12px">$${wine.price}/btl</span>`:""}
+          ${wine.price>0?`<span style="color:var(--brown-mid);font-size:12px">${formatPrice(wine)}</span>`:""}
           ${status?`<span style="color:${status.color};font-size:12px">${status.emoji} ${status.label.split("·")[0].trim()}</span>`:""}
         </div>
         ${wine.pairings?.length?`<div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap">
@@ -1572,7 +1678,7 @@ function renderConsumedTab() {
           </div>
           <div style="color:var(--brown-light);font-size:12px;font-style:italic">${c.winery}${c.vintage?" · "+c.vintage:""}</div>
           <div style="display:flex;gap:10px;margin-top:5px;flex-wrap:wrap">
-            ${c.price>0?`<span style="color:var(--brown-pale);font-size:11px">$${c.price}/btl</span>`:""}
+            ${c.price>0?`<span style="color:var(--brown-pale);font-size:11px">${formatPrice(c)}</span>`:""}
             ${loc?`<span style="color:var(--brown-pale);font-size:11px">${loc.icon} was in ${loc.name} · ${c.slot}</span>`:""}
           </div>
           ${c.pairings?.length?`<div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap">
@@ -1599,7 +1705,8 @@ let scanQueueSaved = 0;      // bottles saved so far in this multi-scan session
 
 function showAddWineModal() {
   addWineScreen     = "choose";
-  addWineForm       = {winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",score:"",drinkFrom:"",drinkTo:"",notes:"",_enrichNote:null,_pairings:null,_drinkWindow:null,_servingTip:null,_criticNotes:null,_tripId:activeTrip||""};
+  const _initTrip   = trips[activeTrip];
+  addWineForm       = {winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",score:"",drinkFrom:"",drinkTo:"",notes:"",priceLocal:"",priceCurrency:_initTrip?.currency||"USD",_enrichNote:null,_pairings:null,_drinkWindow:null,_servingTip:null,_tripId:activeTrip||""};
   addWineScanPreview= null;
   addWineScanError  = null;
   scanQueue         = [];
@@ -1611,7 +1718,8 @@ function showAddWineModal() {
 
 // Sequential single-bottle scanner used by "Scan Multiple Bottles"
 function startMultiScanCamera() {
-  addWineForm={winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",score:"",drinkFrom:"",drinkTo:"",notes:"",_enrichNote:null,_pairings:null,_drinkWindow:null,_servingTip:null,_criticNotes:null,_tripId:activeTrip||""};
+  const _mstTrip=trips[activeTrip];
+  addWineForm={winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",score:"",drinkFrom:"",drinkTo:"",notes:"",priceLocal:"",priceCurrency:_mstTrip?.currency||"USD",_enrichNote:null,_pairings:null,_drinkWindow:null,_servingTip:null,_tripId:activeTrip||""};
   addWineScanPreview=null; addWineScanError=null;
   const inp=document.createElement("input"); inp.type="file"; inp.accept="image/*"; inp.capture="environment";
   inp.onchange=async e=>{
@@ -1645,7 +1753,7 @@ function startMultiScanCamera() {
         addWineScreen="pairings"; renderAddWineModal();
         try {
           const pd=await callPairingsAPI(addWineForm.winery,addWineForm.wine,addWineForm.vintage,addWineForm.varietal,addWineForm.region);
-          if(pd.pairings){addWineForm._pairings=pd.pairings; addWineForm._drinkWindow=pd.drinkWindow||null; addWineForm._servingTip=pd.servingTip||null; addWineForm._criticNotes=pd.criticNotes||null;}
+          if(pd.pairings){addWineForm._pairings=pd.pairings; addWineForm._drinkWindow=pd.drinkWindow||null; addWineForm._servingTip=pd.servingTip||null;}
         } catch(_){}
         addWineScreen="queue-form"; renderAddWineModal();
       } catch(_){addWineScanError="Scan failed — fill in manually."; addWineScreen="form"; renderAddWineModal();}
@@ -1723,7 +1831,6 @@ function renderAddWineModal() {
                 addWineForm._pairings    = pd.pairings;
                 addWineForm._drinkWindow = pd.drinkWindow||null;
                 addWineForm._servingTip  = pd.servingTip||null;
-                addWineForm._criticNotes = pd.criticNotes||null;
               }
             } catch(e) { console.warn("Pairings fetch failed, continuing:", e); }
             addWineScreen="form"; renderAddWineModal();
@@ -1765,7 +1872,8 @@ function renderAddWineModal() {
               winesList=[result];
             }
             // Build a form object for each detected wine
-            const mkForm=()=>({winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",score:"",drinkFrom:"",drinkTo:"",notes:"",_enrichNote:null,_pairings:null,_drinkWindow:null,_servingTip:null,_criticNotes:null,_tripId:activeTrip||""});
+            const _msqTrip=trips[activeTrip];
+            const mkForm=()=>({winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",score:"",drinkFrom:"",drinkTo:"",notes:"",priceLocal:"",priceCurrency:_msqTrip?.currency||"USD",_enrichNote:null,_pairings:null,_drinkWindow:null,_servingTip:null,_tripId:activeTrip||""});
             scanQueue=winesList.map(w=>{
               const f=mkForm();
               f.winery=w.winery||""; f.wine=w.wine||""; f.vintage=w.vintage||"";
@@ -1795,7 +1903,7 @@ function renderAddWineModal() {
               addWineScreen="pairings"; renderAddWineModal();
               try {
                 const pd=await callPairingsAPI(q.winery,q.wine,q.vintage,q.varietal,q.region);
-                if(pd.pairings){q._pairings=pd.pairings; q._drinkWindow=pd.drinkWindow||null; q._servingTip=pd.servingTip||null; q._criticNotes=pd.criticNotes||null;}
+                if(pd.pairings){q._pairings=pd.pairings; q._drinkWindow=pd.drinkWindow||null; q._servingTip=pd.servingTip||null;}
               } catch(_){}
             }
             // Show first confirmation screen
@@ -1931,16 +2039,13 @@ function renderAddWineModal() {
     ri.oninput=e=>addWineForm.region=e.target.value;
     regWrap.appendChild(ri); form.appendChild(regWrap);
 
-    // Price + Score
-    const row2=html(`<div style="display:flex;gap:10px"></div>`);
-    [{k:"price",l:"Price / Bottle ($)",p:"0.00"},{k:"score",l:"Critic Score",p:"92"}].forEach(({k,l,p})=>{
-      const w=document.createElement("div"); w.style.flex="1";
-      w.appendChild(html(`<div class="field-label">${l}</div>`));
-      const inp=document.createElement("input"); inp.placeholder=p; inp.value=addWineForm[k]; inp.inputMode="decimal";
-      inp.oninput=e=>addWineForm[k]=e.target.value.replace(/[^0-9.]/g,"");
-      w.appendChild(inp); row2.appendChild(w);
-    });
-    form.appendChild(row2);
+    // Price (currency-aware) + Score
+    buildPriceField(form, addWineForm, null);
+    const scoreWrap=document.createElement("div");
+    scoreWrap.appendChild(html(`<div class="field-label">Critic Score</div>`));
+    const scoreInp=document.createElement("input"); scoreInp.placeholder="92"; scoreInp.value=addWineForm.score; scoreInp.inputMode="decimal";
+    scoreInp.oninput=e=>addWineForm.score=e.target.value.replace(/[^0-9.]/g,"");
+    scoreWrap.appendChild(scoreInp); form.appendChild(scoreWrap);
 
     // Drink window
     const row3=html(`<div style="display:flex;gap:10px"></div>`);
@@ -1976,22 +2081,6 @@ function renderAddWineModal() {
       pairWrap.appendChild(chips); form.appendChild(pairWrap);
     }
 
-    // Critic notes preview (pre-fetched during scan alongside pairings)
-    if(addWineForm._criticNotes?.length){
-      const n=addWineForm._criticNotes[Math.floor(Math.random()*addWineForm._criticNotes.length)];
-      const cnWrap=document.createElement("div");
-      cnWrap.appendChild(html(`<div class="field-label">Critic Notes</div>`));
-      const cnCard=document.createElement("div");
-      cnCard.style.cssText="background:rgba(139,38,53,0.05);border:1px solid rgba(139,38,53,0.12);border-radius:10px;padding:10px 12px;";
-      cnCard.appendChild(html(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <span style="color:var(--brown-mid);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">${n.source}</span>
-        ${n.score?`<span style="color:${scoreColor(n.score)};font-size:11px;font-weight:800;font-family:monospace">${n.score} pts</span>`:""}
-      </div>`));
-      cnCard.appendChild(html(`<div style="color:var(--brown-mid);font-size:12px;line-height:1.6;font-style:italic">${n.note}</div>`));
-      cnWrap.appendChild(cnCard);
-      form.appendChild(cnWrap);
-    }
-
     sheet.appendChild(form);
 
     // Actions
@@ -2003,6 +2092,10 @@ function renderAddWineModal() {
       if(!addWineForm.winery?.trim()||!addWineForm.wine?.trim()){
         alert("Winery and wine name are required."); return;
       }
+      save.textContent="Saving…"; save.disabled=true;
+      const isNonUSD = addWineForm.priceCurrency && addWineForm.priceCurrency !== "USD";
+      const rawAmt   = parseFloat(addWineForm.priceLocal||addWineForm.price)||0;
+      const priceUSD = isNonUSD ? (await convertToUSD(rawAmt, addWineForm.priceCurrency)||rawAmt) : rawAmt;
       const wine={
         id: String(nextId++),
         winery:  addWineForm.winery.trim(),
@@ -2011,7 +2104,9 @@ function renderAddWineModal() {
         color:   addWineForm.color||"Red",
         varietal:addWineForm.varietal.trim(),
         region:  addWineForm.region.trim(),
-        price:   parseFloat(addWineForm.price)||0,
+        price:   priceUSD,
+        priceLocal:     isNonUSD ? rawAmt : null,
+        priceCurrency:  isNonUSD ? addWineForm.priceCurrency : null,
         qty:     parseInt(addWineForm.qty)||1,
         score:   parseInt(addWineForm.score)||null,
         drinkFrom:parseInt(addWineForm.drinkFrom)||null,
@@ -2022,15 +2117,14 @@ function renderAddWineModal() {
         drinkWindow: addWineForm._drinkWindow ||null,
         servingTip:  addWineForm._servingTip  ||null,
         pairingsAt:  addWineForm._pairings    ?Date.now():null,
-        criticNotes:   addWineForm._criticNotes  ||null,
-        criticNotesAt: addWineForm._criticNotes  ?Date.now():null,
+        criticNotes:   null,
+        criticNotesAt: null,
         createdAt:Date.now(),
       };
-      save.textContent="Saving…"; save.disabled=true;
       await saveWine(wine);
       root.innerHTML="";
-      // Fetch pairings (+ critic notes) in background only if not already fetched during scan
       if(!wine.pairings) fetchPairingsForWine(wine);
+      fetchCriticsForWine(wine);
     };
     actions.appendChild(cancel); actions.appendChild(save);
     sheet.appendChild(actions);
@@ -2118,16 +2212,13 @@ function renderAddWineModal() {
     const ri=document.createElement("input"); ri.placeholder="e.g. Napa Valley, CA"; ri.value=addWineForm.region;
     ri.oninput=e=>{ addWineForm.region=e.target.value; if(scanQueue[scanQueueIndex]) scanQueue[scanQueueIndex].region=e.target.value; };
     regWrap.appendChild(ri); form.appendChild(regWrap);
-    // Price + Score
-    const row2=html(`<div style="display:flex;gap:10px"></div>`);
-    [{k:"price",l:"Price / Bottle ($)",p:"0.00"},{k:"score",l:"Critic Score",p:"92"}].forEach(({k,l,p})=>{
-      const w=document.createElement("div"); w.style.flex="1";
-      w.appendChild(html(`<div class="field-label">${l}</div>`));
-      const inp=document.createElement("input"); inp.placeholder=p; inp.value=addWineForm[k]; inp.inputMode="decimal";
-      inp.oninput=e=>{ const v=e.target.value.replace(/[^0-9.]/g,""); addWineForm[k]=v; if(scanQueue[scanQueueIndex]) scanQueue[scanQueueIndex][k]=v; };
-      w.appendChild(inp); row2.appendChild(w);
-    });
-    form.appendChild(row2);
+    // Price (currency-aware) + Score
+    buildPriceField(form, addWineForm, scanQueue[scanQueueIndex]||null);
+    const qScoreWrap=document.createElement("div");
+    qScoreWrap.appendChild(html(`<div class="field-label">Critic Score</div>`));
+    const qScoreInp=document.createElement("input"); qScoreInp.placeholder="92"; qScoreInp.value=addWineForm.score; qScoreInp.inputMode="decimal";
+    qScoreInp.oninput=e=>{ const v=e.target.value.replace(/[^0-9.]/g,""); addWineForm.score=v; if(scanQueue[scanQueueIndex]) scanQueue[scanQueueIndex].score=v; };
+    qScoreWrap.appendChild(qScoreInp); form.appendChild(qScoreWrap);
     // Drink window
     const row3=html(`<div style="display:flex;gap:10px"></div>`);
     [{k:"drinkFrom",l:"Drink From",p:"2024"},{k:"drinkTo",l:"Drink To",p:"2035"}].forEach(({k,l,p})=>{
@@ -2158,41 +2249,33 @@ function renderAddWineModal() {
       });
       pairWrap.appendChild(chips); form.appendChild(pairWrap);
     }
-    // Critic notes preview
-    if(addWineForm._criticNotes?.length){
-      const n=addWineForm._criticNotes[Math.floor(Math.random()*addWineForm._criticNotes.length)];
-      const cnWrap=document.createElement("div");
-      cnWrap.appendChild(html(`<div class="field-label">Critic Notes</div>`));
-      const cnCard=document.createElement("div");
-      cnCard.style.cssText="background:rgba(139,38,53,0.05);border:1px solid rgba(139,38,53,0.12);border-radius:10px;padding:10px 12px;";
-      cnCard.appendChild(html(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <span style="color:var(--brown-mid);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">${n.source}</span>
-        ${n.score?`<span style="color:${scoreColor(n.score)};font-size:11px;font-weight:800;font-family:monospace">${n.score} pts</span>`:""}
-      </div>`));
-      cnCard.appendChild(html(`<div style="color:var(--brown-mid);font-size:12px;line-height:1.6;font-style:italic">${n.note}</div>`));
-      cnWrap.appendChild(cnCard);
-      form.appendChild(cnWrap);
-    }
     sheet.appendChild(form);
 
     // Actions
-    const buildWineObj=()=>({
-      id:String(nextId++),
-      winery:addWineForm.winery.trim(), wine:addWineForm.wine.trim(),
-      vintage:addWineForm.vintage.trim(), color:addWineForm.color||"Red",
-      varietal:addWineForm.varietal.trim(), region:addWineForm.region.trim(),
-      price:parseFloat(addWineForm.price)||0, qty:parseInt(addWineForm.qty)||1,
-      score:parseInt(addWineForm.score)||null,
-      drinkFrom:parseInt(addWineForm.drinkFrom)||null, drinkTo:parseInt(addWineForm.drinkTo)||null,
-      notes:addWineForm.notes.trim(),
-      tripId:addWineForm._tripId||null,
-      pairings:addWineForm._pairings||null, drinkWindow:addWineForm._drinkWindow||null,
-      servingTip:addWineForm._servingTip||null,
-      pairingsAt:addWineForm._pairings?Date.now():null,
-      criticNotes:addWineForm._criticNotes||null,
-      criticNotesAt:addWineForm._criticNotes?Date.now():null,
-      createdAt:Date.now(),
-    });
+    const buildWineObj=async()=>{
+      const isNonUSD2 = addWineForm.priceCurrency && addWineForm.priceCurrency !== "USD";
+      const rawAmt2   = parseFloat(addWineForm.priceLocal||addWineForm.price)||0;
+      const priceUSD2 = isNonUSD2 ? (await convertToUSD(rawAmt2, addWineForm.priceCurrency)||rawAmt2) : rawAmt2;
+      return {
+        id:String(nextId++),
+        winery:addWineForm.winery.trim(), wine:addWineForm.wine.trim(),
+        vintage:addWineForm.vintage.trim(), color:addWineForm.color||"Red",
+        varietal:addWineForm.varietal.trim(), region:addWineForm.region.trim(),
+        price:priceUSD2,
+        priceLocal:    isNonUSD2 ? rawAmt2 : null,
+        priceCurrency: isNonUSD2 ? addWineForm.priceCurrency : null,
+        qty:parseInt(addWineForm.qty)||1,
+        score:parseInt(addWineForm.score)||null,
+        drinkFrom:parseInt(addWineForm.drinkFrom)||null, drinkTo:parseInt(addWineForm.drinkTo)||null,
+        notes:addWineForm.notes.trim(),
+        tripId:addWineForm._tripId||null,
+        pairings:addWineForm._pairings||null, drinkWindow:addWineForm._drinkWindow||null,
+        servingTip:addWineForm._servingTip||null,
+        pairingsAt:addWineForm._pairings?Date.now():null,
+        criticNotes:null, criticNotesAt:null,
+        createdAt:Date.now(),
+      };
+    };
     const validate=()=>{ if(!addWineForm.winery?.trim()||!addWineForm.wine?.trim()){alert("Winery and wine name are required."); return false;} return true; };
 
     if(isMultiScan){
@@ -2202,8 +2285,9 @@ function renderAddWineModal() {
       scanAnother.onclick=async()=>{
         if(!validate()) return;
         scanAnother.textContent="Saving…"; scanAnother.disabled=true;
-        const wine=buildWineObj(); await saveWine(wine);
+        const wine=await buildWineObj(); await saveWine(wine);
         if(!wine.pairings) fetchPairingsForWine(wine);
+        fetchCriticsForWine(wine);
         scanQueueSaved++;
         startMultiScanCamera();
       };
@@ -2211,8 +2295,9 @@ function renderAddWineModal() {
       saveDone.onclick=async()=>{
         if(!validate()) return;
         saveDone.textContent="Saving…"; saveDone.disabled=true;
-        const wine=buildWineObj(); await saveWine(wine);
+        const wine=await buildWineObj(); await saveWine(wine);
         if(!wine.pairings) fetchPairingsForWine(wine);
+        fetchCriticsForWine(wine);
         root.innerHTML="";
       };
       const cancel=html(`<button style="background:none;border:none;color:var(--brown-pale);font-size:12px;cursor:pointer;padding:6px;text-align:center;width:100%">Cancel without saving</button>`);
@@ -2231,8 +2316,9 @@ function renderAddWineModal() {
       saveQ.onclick=async()=>{
         if(!validate()) return;
         saveQ.textContent="Saving…"; saveQ.disabled=true;
-        const wine=buildWineObj(); await saveWine(wine);
+        const wine=await buildWineObj(); await saveWine(wine);
         if(!wine.pairings) fetchPairingsForWine(wine);
+        fetchCriticsForWine(wine);
         if(isLast){ root.innerHTML=""; return; }
         scanQueueIndex++; addWineForm={...scanQueue[scanQueueIndex]}; renderAddWineModal();
       };
@@ -2407,7 +2493,7 @@ function showWineProfile(wine) {
   if(wine.vintage) tags.appendChild(html(`<span class="pill">${wine.vintage}</span>`));
   if(wine.region)  tags.appendChild(html(`<span class="pill">${wine.region}</span>`));
   if(wine.score)   tags.appendChild(html(`<span class="pill" style="background:${scoreColor(wine.score)}18;border-color:${scoreColor(wine.score)}44;color:${scoreColor(wine.score)};font-weight:800;font-family:monospace">${wine.score}pts</span>`));
-  if(wine.price>0) tags.appendChild(html(`<span class="pill">$${wine.price}/btl</span>`));
+  if(wine.price>0) tags.appendChild(html(`<span class="pill">${formatPrice(wine)}</span>`));
   sheet.appendChild(tags);
 
   // Drink window
@@ -2468,34 +2554,59 @@ function showWineProfile(wine) {
   sheet.appendChild(aiBox);
 
   // Critics section
-  const criticsBox=html(`<div style="background:rgba(139,38,53,0.05);border:1px solid rgba(139,38,53,0.15);border-radius:14px;padding:16px;margin-bottom:14px">
-    <div style="color:var(--red-wine);font-size:11px;letter-spacing:2px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif;margin-bottom:10px">📰 Critics</div>
-  </div>`);
+  const criticsBox=document.createElement("div");
+  criticsBox.style.cssText="background:rgba(139,38,53,0.05);border:1px solid rgba(139,38,53,0.15);border-radius:14px;padding:16px;margin-bottom:14px";
+  const criticsHeader=document.createElement("div");
+  criticsHeader.style.cssText="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px";
+
+  const criticsTitleRow=document.createElement("div");
+  criticsTitleRow.style.cssText="display:flex;align-items:center;gap:8px";
+  criticsTitleRow.appendChild(html(`<div style="color:var(--red-wine);font-size:11px;letter-spacing:2px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">📰 Critics</div>`));
+  const criticsBadge=document.createElement("span");
+  const isComm=wine.criticSource==="community";
+  criticsBadge.style.cssText=`background:${isComm?"rgba(90,138,58,0.12)":"rgba(184,134,11,0.12)"};color:${isComm?"#5a8a3a":"var(--gold)"};font-size:9px;padding:2px 7px;border-radius:8px;font-weight:700`;
+  criticsBadge.textContent=isComm?"Community Data":"AI Estimate";
+  criticsTitleRow.appendChild(criticsBadge);
+  criticsHeader.appendChild(criticsTitleRow);
+
+  const refreshBtn=html(`<button style="background:none;border:1px solid var(--border);border-radius:8px;color:var(--brown-pale);font-size:11px;cursor:pointer;padding:3px 8px">↻ Refresh</button>`);
+  criticsHeader.appendChild(refreshBtn);
+  criticsBox.appendChild(criticsHeader);
+
   const criticsContent=document.createElement("div");
   criticsBox.appendChild(criticsContent);
-  function renderCriticCards(notes){
+
+  function renderCriticCards(notes, src){
     criticsContent.innerHTML="";
     if(!notes?.length) return;
     const n=notes[Math.floor(Math.random()*notes.length)];
+    const isC=src==="community"||(n.criticSource==="community");
+    criticsBadge.style.cssText=`background:${isC?"rgba(90,138,58,0.12)":"rgba(184,134,11,0.12)"};color:${isC?"#5a8a3a":"var(--gold)"};font-size:9px;padding:2px 7px;border-radius:8px;font-weight:700`;
+    criticsBadge.textContent=isC?"Community Data":"AI Estimate";
     criticsContent.appendChild(html(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
       <div style="color:var(--brown-mid);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">${n.source}</div>
       ${n.score?`<span style="background:${scoreColor(n.score)}18;border:1px solid ${scoreColor(n.score)}44;color:${scoreColor(n.score)};font-size:11px;font-weight:800;font-family:monospace;padding:2px 8px;border-radius:8px">${n.score}</span>`:""}
     </div>`));
     criticsContent.appendChild(html(`<div style="color:var(--brown-mid);font-size:13px;line-height:1.7;font-style:italic">${n.note}</div>`));
   }
+
+  async function loadCritics(showSpinner){
+    if(showSpinner) criticsContent.innerHTML=`<div style="display:flex;align-items:center;gap:10px;color:var(--brown-mid);font-size:13px;font-style:italic"><div class="spinner"></div>Fetching critic notes…</div>`;
+    try {
+      const data=await callCriticsAPI(wine.winery,wine.wine,wine.vintage,wine.varietal,wine.region);
+      if(data.criticNotes?.length){
+        await updateWine(wine.id,{criticNotes:data.criticNotes,criticSource:data.criticSource||"ai",criticNotesAt:Date.now()});
+        renderCriticCards(data.criticNotes,data.criticSource);
+      } else { criticsContent.innerHTML=""; }
+    } catch(e){ criticsContent.innerHTML=""; }
+  }
+
+  refreshBtn.onclick=()=>loadCritics(true);
+
   if(wine.criticNotes?.length){
-    renderCriticCards(wine.criticNotes);
+    renderCriticCards(wine.criticNotes,wine.criticSource);
   } else {
-    criticsContent.innerHTML=`<div style="display:flex;align-items:center;gap:10px;color:var(--brown-mid);font-size:13px;font-style:italic"><div class="spinner"></div>Fetching critic notes…</div>`;
-    (async()=>{
-      try {
-        const data=await callPairingsAPI(wine.winery,wine.wine,wine.vintage,wine.varietal,wine.region);
-        if(data.criticNotes?.length){
-          await updateWine(wine.id,{criticNotes:data.criticNotes,criticNotesAt:Date.now()});
-          renderCriticCards(data.criticNotes);
-        } else { criticsContent.innerHTML=""; }
-      } catch(e){ criticsContent.innerHTML=""; }
-    })();
+    loadCritics(true);
   }
   sheet.appendChild(criticsBox);
 
@@ -2525,19 +2636,22 @@ function showWineProfile(wine) {
 let editWineForm = {};
 
 function showEditWineModal(wine) {
+  const hasLocal = wine.priceCurrency && wine.priceCurrency !== "USD" && wine.priceLocal > 0;
   editWineForm = {
-    winery:   wine.winery   ||"",
-    wine:     wine.wine     ||"",
-    vintage:  wine.vintage  ?String(wine.vintage) :"",
-    color:    wine.color    ||"Red",
-    varietal: wine.varietal ||"",
-    region:   wine.region   ||"",
-    price:    wine.price    ?String(wine.price)   :"",
-    qty:      wine.qty      ?String(wine.qty)     :"1",
-    score:    wine.score    ?String(wine.score)   :"",
-    drinkFrom:wine.drinkFrom?String(wine.drinkFrom):"",
-    drinkTo:  wine.drinkTo  ?String(wine.drinkTo) :"",
-    notes:    wine.notes    ||"",
+    winery:       wine.winery   ||"",
+    wine:         wine.wine     ||"",
+    vintage:      wine.vintage  ?String(wine.vintage) :"",
+    color:        wine.color    ||"Red",
+    varietal:     wine.varietal ||"",
+    region:       wine.region   ||"",
+    price:        hasLocal ? String(wine.priceLocal) : (wine.price ? String(wine.price) : ""),
+    priceLocal:   hasLocal ? String(wine.priceLocal) : "",
+    priceCurrency:wine.priceCurrency||"USD",
+    qty:          wine.qty      ?String(wine.qty)     :"1",
+    score:        wine.score    ?String(wine.score)   :"",
+    drinkFrom:    wine.drinkFrom?String(wine.drinkFrom):"",
+    drinkTo:      wine.drinkTo  ?String(wine.drinkTo) :"",
+    notes:        wine.notes    ||"",
   };
   renderEditWineModal(wine);
 }
@@ -2610,16 +2724,13 @@ function renderEditWineModal(wine) {
   ri.oninput=e=>editWineForm.region=e.target.value;
   regWrap.appendChild(ri); form.appendChild(regWrap);
 
-  // Price + Score
-  const row2=html(`<div style="display:flex;gap:10px"></div>`);
-  [{k:"price",l:"Price / Bottle ($)",p:"0.00"},{k:"score",l:"Critic Score",p:"92"}].forEach(({k,l,p})=>{
-    const w=document.createElement("div"); w.style.flex="1";
-    w.appendChild(html(`<div class="field-label">${l}</div>`));
-    const inp=document.createElement("input"); inp.placeholder=p; inp.value=editWineForm[k]; inp.inputMode="decimal";
-    inp.oninput=e=>editWineForm[k]=e.target.value.replace(/[^0-9.]/g,"");
-    w.appendChild(inp); row2.appendChild(w);
-  });
-  form.appendChild(row2);
+  // Price (currency-aware) + Score
+  buildPriceField(form, editWineForm, null);
+  const eScoreWrap=document.createElement("div");
+  eScoreWrap.appendChild(html(`<div class="field-label">Critic Score</div>`));
+  const eScoreInp=document.createElement("input"); eScoreInp.placeholder="92"; eScoreInp.value=editWineForm.score; eScoreInp.inputMode="decimal";
+  eScoreInp.oninput=e=>editWineForm.score=e.target.value.replace(/[^0-9.]/g,"");
+  eScoreWrap.appendChild(eScoreInp); form.appendChild(eScoreWrap);
 
   // Drink window
   const row3=html(`<div style="display:flex;gap:10px"></div>`);
@@ -2639,13 +2750,16 @@ function renderEditWineModal(wine) {
   ta.oninput=e=>editWineForm.notes=e.target.value;
   notesWrap.appendChild(ta); form.appendChild(notesWrap);
 
-  // Critic notes reference (auto-fetched, read-only)
-  const editCriticWrap=document.createElement("div");
-  const editCriticContent=document.createElement("div");
-  function renderEditCriticCards(notes){
-    editCriticContent.innerHTML="";
-    if(!notes?.length) return;
-    const n=notes[Math.floor(Math.random()*notes.length)];
+  // Critic notes reference (fetched after save, read-only)
+  if(wine.criticNotes?.length){
+    const editCriticWrap=document.createElement("div");
+    const isCommE=wine.criticSource==="community";
+    const labelRow=document.createElement("div"); labelRow.style.cssText="display:flex;align-items:center;gap:6px;margin-bottom:4px";
+    labelRow.appendChild(html(`<div class="field-label" style="margin-bottom:0">Critic Notes</div>`));
+    const ecBadge=html(`<span style="background:${isCommE?"rgba(90,138,58,0.12)":"rgba(184,134,11,0.12)"};color:${isCommE?"#5a8a3a":"var(--gold)"};font-size:9px;padding:1px 6px;border-radius:6px;font-weight:700">${isCommE?"Community Data":"AI Estimate"}</span>`);
+    labelRow.appendChild(ecBadge);
+    editCriticWrap.appendChild(labelRow);
+    const n=wine.criticNotes[Math.floor(Math.random()*wine.criticNotes.length)];
     const card=document.createElement("div");
     card.style.cssText="background:rgba(139,38,53,0.05);border:1px solid rgba(139,38,53,0.12);border-radius:10px;padding:10px 12px;";
     card.appendChild(html(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
@@ -2653,27 +2767,9 @@ function renderEditWineModal(wine) {
       ${n.score?`<span style="color:${scoreColor(n.score)};font-size:11px;font-weight:800;font-family:monospace">${n.score} pts</span>`:""}
     </div>`));
     card.appendChild(html(`<div style="color:var(--brown-mid);font-size:12px;line-height:1.6;font-style:italic">${n.note}</div>`));
-    editCriticContent.appendChild(card);
+    editCriticWrap.appendChild(card);
+    form.appendChild(editCriticWrap);
   }
-  if(wine.criticNotes?.length){
-    editCriticWrap.appendChild(html(`<div class="field-label">Critic Notes <span style="font-size:9px;color:var(--brown-pale);text-transform:none;letter-spacing:0">(reference)</span></div>`));
-    renderEditCriticCards(wine.criticNotes);
-    editCriticWrap.appendChild(editCriticContent);
-  } else {
-    editCriticContent.innerHTML=`<div style="display:flex;align-items:center;gap:8px;color:var(--brown-pale);font-size:12px;font-style:italic;padding:4px 0"><div class="spinner"></div>Loading critic notes…</div>`;
-    editCriticWrap.appendChild(editCriticContent);
-    (async()=>{
-      try {
-        const data=await callPairingsAPI(wine.winery,wine.wine,wine.vintage,wine.varietal,wine.region);
-        if(data.criticNotes?.length){
-          await updateWine(wine.id,{criticNotes:data.criticNotes,criticNotesAt:Date.now()});
-          editCriticWrap.insertBefore(html(`<div class="field-label">Critic Notes <span style="font-size:9px;color:var(--brown-pale);text-transform:none;letter-spacing:0">(reference)</span></div>`),editCriticContent);
-          renderEditCriticCards(data.criticNotes);
-        } else { editCriticContent.innerHTML=""; }
-      } catch(e){ editCriticContent.innerHTML=""; }
-    })();
-  }
-  form.appendChild(editCriticWrap);
 
   sheet.appendChild(form);
 
@@ -2689,11 +2785,17 @@ function renderEditWineModal(wine) {
   save.onclick=async()=>{
     if(!editWineForm.winery.trim()||!editWineForm.wine.trim()){alert("Winery and wine name are required."); return;}
     save.textContent="Saving…"; save.disabled=true;
+    const eIsNonUSD = editWineForm.priceCurrency && editWineForm.priceCurrency !== "USD";
+    const eRawAmt   = parseFloat(editWineForm.priceLocal||editWineForm.price)||0;
+    const ePriceUSD = eIsNonUSD ? (await convertToUSD(eRawAmt, editWineForm.priceCurrency)||eRawAmt) : eRawAmt;
     await updateWine(wine.id,{
       winery:editWineForm.winery.trim(), wine:editWineForm.wine.trim(),
       vintage:editWineForm.vintage.trim(), color:editWineForm.color||"Red",
       varietal:editWineForm.varietal.trim(), region:editWineForm.region.trim(),
-      price:parseFloat(editWineForm.price)||0, qty:parseInt(editWineForm.qty)||1,
+      price:ePriceUSD,
+      priceLocal:    eIsNonUSD ? eRawAmt : null,
+      priceCurrency: eIsNonUSD ? editWineForm.priceCurrency : null,
+      qty:parseInt(editWineForm.qty)||1,
       score:parseInt(editWineForm.score)||null,
       drinkFrom:parseInt(editWineForm.drinkFrom)||null,
       drinkTo:parseInt(editWineForm.drinkTo)||null,
@@ -2724,7 +2826,7 @@ function showSlotDetail(locId,slot,wine){
   if(wine.color)   tags.appendChild(html(`<span class="pill" style="background:${colorDot(wine.color)}22;border-color:${colorDot(wine.color)}44;color:${colorDot(wine.color)}">${wine.color}</span>`));
   if(wine.varietal)tags.appendChild(html(`<span class="pill">${wine.varietal}</span>`));
   if(wine.score)   tags.appendChild(html(`<span class="pill" style="color:${scoreColor(wine.score)};font-weight:800">${wine.score}pts</span>`));
-  if(wine.price>0) tags.appendChild(html(`<span class="pill" style="color:var(--brown-mid)">$${wine.price}/btl</span>`));
+  if(wine.price>0) tags.appendChild(html(`<span class="pill" style="color:var(--brown-mid)">${formatPrice(wine)}</span>`));
   sheet.appendChild(tags);
 
   if(wine.pairings?.length){
