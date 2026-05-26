@@ -574,13 +574,21 @@ function formatPrice(wine) {
   return `$${wine.price}/btl`;
 }
 
+// Approximate rates to USD — used when live API is unavailable
+const FX_FALLBACK = {EUR:1.12,GBP:1.28,AUD:0.64,CAD:0.73,CHF:1.12,JPY:0.0067,NZD:0.60,HKD:0.128,SGD:0.74};
+
 async function convertToUSD(amount, fromCurrency) {
   if (!amount || !fromCurrency || fromCurrency === "USD") return amount;
   try {
     const r = await fetch(`https://api.frankfurter.app/latest?from=${fromCurrency}&to=USD&amount=${amount}`);
-    const d = await r.json();
-    return Math.round((d.rates?.USD || amount) * 100) / 100;
-  } catch { return amount; }
+    if (r.ok) {
+      const d = await r.json();
+      if (d.rates?.USD) return Math.round(d.rates.USD * 100) / 100;
+    }
+  } catch (_) {}
+  // Fallback: approximate hardcoded rate
+  const rate = FX_FALLBACK[fromCurrency];
+  return rate ? Math.round(amount * rate * 100) / 100 : amount;
 }
 
 // Builds the currency-aware price row and attaches it to `form`.
