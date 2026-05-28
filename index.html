@@ -1278,7 +1278,12 @@ function renderTripTab() {
   </div>`);
   const addBtn = html(`<button class="btn-primary" style="width:auto;padding:8px 18px;font-size:13px">+ Add Wine</button>`);
   addBtn.onclick = () => showAddWineModal();
-  hdr.appendChild(addBtn);
+  const quickBtn = html(`<button class="btn-primary" style="width:auto;padding:8px 14px;font-size:18px;font-weight:700;line-height:1">+</button>`);
+  quickBtn.onclick = () => showQuickAddModal();
+  const btnGroup = html(`<div style="display:flex;gap:8px"></div>`);
+  btnGroup.appendChild(addBtn);
+  btnGroup.appendChild(quickBtn);
+  hdr.appendChild(btnGroup);
   frag.appendChild(hdr);
 
   if (Object.keys(wines).length===0) {
@@ -1307,6 +1312,25 @@ function renderTripTab() {
 }
 
 function renderTripCard(wine) {
+  if (wine.isPlaceholder) {
+    const dot = colorDot(wine.color || "Red");
+    const qty = wine.qty || 1;
+    const card = html(`<div class="card" style="cursor:pointer;border:1.5px dashed ${dot}66;background:${dot}08">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:9px;margin-bottom:4px">
+            <div class="color-dot" style="background:${dot}"></div>
+            <div style="font-family:'Cormorant Garamond',serif;font-size:16px;font-weight:700;color:var(--brown-light);font-style:italic">Placeholder</div>
+          </div>
+          <div style="color:var(--brown-mid);font-size:13px">${wine.color} · ×${qty} bottle${qty>1?"s":""}</div>
+        </div>
+        <div style="color:var(--brown-pale);font-size:12px;padding-left:8px;white-space:nowrap">Add details ›</div>
+      </div>
+    </div>`);
+    card.onclick = () => showEditWineModal(wine);
+    return card;
+  }
+
   const card = html(`<div class="card" style="cursor:pointer">
     <div style="display:flex;justify-content:space-between;align-items:flex-start">
       <div style="flex:1;min-width:0">
@@ -1710,6 +1734,74 @@ let scanQueue      = [];
 let scanQueueIndex = 0;
 let isMultiScan    = false;  // true when using sequential multi-bottle scan
 let scanQueueSaved = 0;      // bottles saved so far in this multi-scan session
+
+function showQuickAddModal() {
+  if (!activeTrip) { alert("Select a trip first."); return; }
+  let qColor = "Red";
+  let qQty   = "1";
+
+  function render() {
+    const root = el("modal-root"); root.innerHTML = "";
+    const overlay = document.createElement("div"); overlay.className = "modal-overlay";
+    const sheet   = document.createElement("div"); sheet.className   = "modal-sheet";
+    overlay.onclick = e => { if (e.target === overlay) root.innerHTML = ""; };
+    sheet.appendChild(html(`<div class="modal-handle"></div>`));
+    sheet.appendChild(html(`<div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:800;color:var(--ink);margin-bottom:18px">Quick Add</div>`));
+
+    const form = document.createElement("div");
+    form.style.cssText = "display:flex;flex-direction:column;gap:14px";
+
+    // Color picker
+    const colorRow = document.createElement("div");
+    colorRow.appendChild(html(`<div class="field-label">Color</div>`));
+    const pills = document.createElement("div"); pills.style.cssText = "display:flex;gap:6px";
+    COLOR_OPTIONS.forEach(c => {
+      const active = qColor === c; const dot = colorDot(c);
+      const btn = html(`<button style="flex:1;padding:8px 4px;border-radius:9px;border:1px solid ${active?dot:"var(--border)"};background:${active?dot+"22":"transparent"};color:${active?dot:"var(--brown-pale)"};font-size:11px;cursor:pointer;font-family:inherit;font-weight:700">${c}</button>`);
+      btn.onclick = () => { qColor = c; render(); };
+      pills.appendChild(btn);
+    });
+    colorRow.appendChild(pills);
+    form.appendChild(colorRow);
+
+    // Quantity
+    const qtyRow = document.createElement("div");
+    qtyRow.appendChild(html(`<div class="field-label">Bottles</div>`));
+    const qtyInp = document.createElement("input");
+    qtyInp.type = "number"; qtyInp.inputMode = "numeric"; qtyInp.min = "1";
+    qtyInp.value = qQty; qtyInp.placeholder = "1";
+    qtyInp.oninput = e => { qQty = e.target.value.replace(/\D/g,""); };
+    qtyRow.appendChild(qtyInp);
+    form.appendChild(qtyRow);
+
+    sheet.appendChild(form);
+
+    const saveBtn = html(`<button class="btn-primary" style="margin-top:20px">Add Placeholder</button>`);
+    saveBtn.onclick = async () => {
+      const qty = parseInt(qQty) || 1;
+      const wine = {
+        id: String(nextId++),
+        winery: "", wine: "Placeholder",
+        color: qColor, qty,
+        tripId: activeTrip,
+        isPlaceholder: true,
+        vintage: "", varietal: "", region: "",
+        price: 0, priceLocal: null, priceCurrency: null,
+        score: null, drinkFrom: null, drinkTo: null, notes: "",
+        pairings: null, drinkWindow: null, servingTip: null,
+        pairingsAt: null, criticNotes: null, criticNotesAt: null,
+        createdAt: Date.now()
+      };
+      saveBtn.textContent = "Adding…"; saveBtn.disabled = true;
+      await saveWine(wine);
+      root.innerHTML = "";
+    };
+    sheet.appendChild(saveBtn);
+    overlay.appendChild(sheet);
+    root.appendChild(overlay);
+  }
+  render();
+}
 
 function showAddWineModal() {
   addWineScreen     = "choose";
@@ -2660,6 +2752,9 @@ function showEditWineModal(wine) {
     drinkFrom:    wine.drinkFrom?String(wine.drinkFrom):"",
     drinkTo:      wine.drinkTo  ?String(wine.drinkTo) :"",
     notes:        wine.notes    ||"",
+    _pairings:    null,
+    _drinkWindow: null,
+    _servingTip:  null,
   };
   renderEditWineModal(wine);
 }
@@ -2675,8 +2770,59 @@ function renderEditWineModal(wine) {
   const back=html(`<button style="background:none;border:none;color:var(--brown-mid);font-size:18px;cursor:pointer;padding:0">←</button>`);
   back.onclick=()=>root.innerHTML="";
   titleRow.appendChild(back);
-  titleRow.appendChild(html(`<div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:800;color:var(--ink)">Edit Wine</div>`));
+  titleRow.appendChild(html(`<div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:800;color:var(--ink)">${wine.isPlaceholder?"Complete Details":"Edit Wine"}</div>`));
   sheet.appendChild(titleRow);
+
+  // Scan button (placeholder only)
+  if (wine.isPlaceholder) {
+    const scanBtn = html(`<button style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:12px;border-radius:12px;border:2px dashed rgba(184,134,11,0.4);background:rgba(184,134,11,0.06);color:var(--gold);font-size:14px;font-family:'Cormorant Garamond',serif;font-weight:700;cursor:pointer;margin-bottom:6px">📷 Scan Label</button>`);
+    const statusDiv = html(`<div style="color:var(--brown-mid);font-size:13px;text-align:center;margin-bottom:14px;min-height:18px"></div>`);
+    scanBtn.onclick = () => {
+      const inp = document.createElement("input"); inp.type="file"; inp.accept="image/*"; inp.capture="environment";
+      inp.onchange = async e => {
+        const file = e.target.files[0]; if (!file) return;
+        scanBtn.disabled = true; scanBtn.textContent = "📷 Scanning…";
+        const reader = new FileReader();
+        reader.onload = async ev => {
+          statusDiv.textContent = "Reading label…";
+          try {
+            const b64 = ev.target.result.split(",")[1];
+            const result = await scanLabel(b64);
+            if (result.error) { statusDiv.textContent = "Couldn't read label — fill in manually."; scanBtn.disabled=false; scanBtn.textContent="📷 Scan Label"; return; }
+            if (result.winery)   editWineForm.winery   = result.winery;
+            if (result.wine)     editWineForm.wine     = result.wine;
+            if (result.vintage)  editWineForm.vintage  = result.vintage;
+            if (result.varietal) editWineForm.varietal = result.varietal;
+            if (result.region)   editWineForm.region   = result.region;
+            if (COLOR_OPTIONS.includes(result.color)) editWineForm.color = result.color;
+            statusDiv.textContent = "Enriching wine data…";
+            try {
+              const enriched = await enrichWineData(editWineForm.winery, editWineForm.wine, editWineForm.vintage);
+              if (!enriched.error) {
+                if (enriched.varietal && !editWineForm.varietal) editWineForm.varietal = enriched.varietal;
+                if (enriched.region   && !editWineForm.region)   editWineForm.region   = enriched.region;
+                if (enriched.color    && COLOR_OPTIONS.includes(enriched.color)) editWineForm.color = enriched.color;
+                if (enriched.score)    editWineForm.score    = String(enriched.score);
+                if (enriched.avgPrice) editWineForm.price    = String(enriched.avgPrice);
+                if (enriched.drinkFrom)editWineForm.drinkFrom= String(enriched.drinkFrom);
+                if (enriched.drinkTo)  editWineForm.drinkTo  = String(enriched.drinkTo);
+              }
+            } catch(_) {}
+            statusDiv.textContent = "Fetching pairings…";
+            try {
+              const pd = await callPairingsAPI(editWineForm.winery, editWineForm.wine, editWineForm.vintage, editWineForm.varietal, editWineForm.region);
+              if (pd.pairings) { editWineForm._pairings=pd.pairings; editWineForm._drinkWindow=pd.drinkWindow||null; editWineForm._servingTip=pd.servingTip||null; }
+            } catch(_) {}
+            renderEditWineModal(wine);
+          } catch(_) { statusDiv.textContent = "Scan failed — fill in manually."; scanBtn.disabled=false; scanBtn.textContent="📷 Scan Label"; }
+        };
+        reader.readAsDataURL(file);
+      };
+      inp.click();
+    };
+    sheet.appendChild(scanBtn);
+    sheet.appendChild(statusDiv);
+  }
 
   const form=document.createElement("div"); form.style.cssText="display:flex;flex-direction:column;gap:13px";
 
@@ -2789,9 +2935,11 @@ function renderEditWineModal(wine) {
     await deleteWine(wine.id);
     root.innerHTML="";
   };
-  const save=html(`<button class="btn-primary" style="flex:2">Save Changes</button>`);
+  const save=html(`<button class="btn-primary" style="flex:2">${wine.isPlaceholder?"Save Details":"Save Changes"}</button>`);
   save.onclick=async()=>{
-    if(!editWineForm.winery.trim()||!editWineForm.wine.trim()){alert("Winery and wine name are required."); return;}
+    const filledIn = editWineForm.winery.trim() && editWineForm.wine.trim();
+    if (!wine.isPlaceholder && !filledIn) { alert("Winery and wine name are required."); return; }
+    if (wine.isPlaceholder && !filledIn) { alert("Enter the winery and wine name to save details."); return; }
     save.textContent="Saving…"; save.disabled=true;
     const eIsNonUSD = editWineForm.priceCurrency && editWineForm.priceCurrency !== "USD";
     const eRawAmt   = parseFloat(editWineForm.priceLocal||editWineForm.price)||0;
@@ -2808,6 +2956,8 @@ function renderEditWineModal(wine) {
       drinkFrom:parseInt(editWineForm.drinkFrom)||null,
       drinkTo:parseInt(editWineForm.drinkTo)||null,
       notes:editWineForm.notes.trim(),
+      isPlaceholder: false,
+      ...(editWineForm._pairings ? {pairings:editWineForm._pairings, drinkWindow:editWineForm._drinkWindow, servingTip:editWineForm._servingTip, pairingsAt:Date.now()} : {}),
     });
     root.innerHTML="";
   };
