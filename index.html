@@ -2752,6 +2752,9 @@ function showEditWineModal(wine) {
     drinkFrom:    wine.drinkFrom?String(wine.drinkFrom):"",
     drinkTo:      wine.drinkTo  ?String(wine.drinkTo) :"",
     notes:        wine.notes    ||"",
+    _pairings:    null,
+    _drinkWindow: null,
+    _servingTip:  null,
   };
   renderEditWineModal(wine);
 }
@@ -2769,6 +2772,57 @@ function renderEditWineModal(wine) {
   titleRow.appendChild(back);
   titleRow.appendChild(html(`<div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:800;color:var(--ink)">${wine.isPlaceholder?"Complete Details":"Edit Wine"}</div>`));
   sheet.appendChild(titleRow);
+
+  // Scan button (placeholder only)
+  if (wine.isPlaceholder) {
+    const scanBtn = html(`<button style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:12px;border-radius:12px;border:2px dashed rgba(184,134,11,0.4);background:rgba(184,134,11,0.06);color:var(--gold);font-size:14px;font-family:'Cormorant Garamond',serif;font-weight:700;cursor:pointer;margin-bottom:6px">📷 Scan Label</button>`);
+    const statusDiv = html(`<div style="color:var(--brown-mid);font-size:13px;text-align:center;margin-bottom:14px;min-height:18px"></div>`);
+    scanBtn.onclick = () => {
+      const inp = document.createElement("input"); inp.type="file"; inp.accept="image/*"; inp.capture="environment";
+      inp.onchange = async e => {
+        const file = e.target.files[0]; if (!file) return;
+        scanBtn.disabled = true; scanBtn.textContent = "📷 Scanning…";
+        const reader = new FileReader();
+        reader.onload = async ev => {
+          statusDiv.textContent = "Reading label…";
+          try {
+            const b64 = ev.target.result.split(",")[1];
+            const result = await scanLabel(b64);
+            if (result.error) { statusDiv.textContent = "Couldn't read label — fill in manually."; scanBtn.disabled=false; scanBtn.textContent="📷 Scan Label"; return; }
+            if (result.winery)   editWineForm.winery   = result.winery;
+            if (result.wine)     editWineForm.wine     = result.wine;
+            if (result.vintage)  editWineForm.vintage  = result.vintage;
+            if (result.varietal) editWineForm.varietal = result.varietal;
+            if (result.region)   editWineForm.region   = result.region;
+            if (COLOR_OPTIONS.includes(result.color)) editWineForm.color = result.color;
+            statusDiv.textContent = "Enriching wine data…";
+            try {
+              const enriched = await enrichWineData(editWineForm.winery, editWineForm.wine, editWineForm.vintage);
+              if (!enriched.error) {
+                if (enriched.varietal && !editWineForm.varietal) editWineForm.varietal = enriched.varietal;
+                if (enriched.region   && !editWineForm.region)   editWineForm.region   = enriched.region;
+                if (enriched.color    && COLOR_OPTIONS.includes(enriched.color)) editWineForm.color = enriched.color;
+                if (enriched.score)    editWineForm.score    = String(enriched.score);
+                if (enriched.avgPrice) editWineForm.price    = String(enriched.avgPrice);
+                if (enriched.drinkFrom)editWineForm.drinkFrom= String(enriched.drinkFrom);
+                if (enriched.drinkTo)  editWineForm.drinkTo  = String(enriched.drinkTo);
+              }
+            } catch(_) {}
+            statusDiv.textContent = "Fetching pairings…";
+            try {
+              const pd = await callPairingsAPI(editWineForm.winery, editWineForm.wine, editWineForm.vintage, editWineForm.varietal, editWineForm.region);
+              if (pd.pairings) { editWineForm._pairings=pd.pairings; editWineForm._drinkWindow=pd.drinkWindow||null; editWineForm._servingTip=pd.servingTip||null; }
+            } catch(_) {}
+            renderEditWineModal(wine);
+          } catch(_) { statusDiv.textContent = "Scan failed — fill in manually."; scanBtn.disabled=false; scanBtn.textContent="📷 Scan Label"; }
+        };
+        reader.readAsDataURL(file);
+      };
+      inp.click();
+    };
+    sheet.appendChild(scanBtn);
+    sheet.appendChild(statusDiv);
+  }
 
   const form=document.createElement("div"); form.style.cssText="display:flex;flex-direction:column;gap:13px";
 
@@ -2903,6 +2957,7 @@ function renderEditWineModal(wine) {
       drinkTo:parseInt(editWineForm.drinkTo)||null,
       notes:editWineForm.notes.trim(),
       isPlaceholder: false,
+      ...(editWineForm._pairings ? {pairings:editWineForm._pairings, drinkWindow:editWineForm._drinkWindow, servingTip:editWineForm._servingTip, pairingsAt:Date.now()} : {}),
     });
     root.innerHTML="";
   };
