@@ -724,20 +724,21 @@ async function saveTrip(trip) {
 }
 
 // ── Worker calls ─────────────────────────────────────────────────
-async function callPairingsAPI(winery, wine, vintage, varietal, region) {
+async function callPairingsAPI(winery, wine, vintage, varietal, region, color) {
+  const varietalCtx = [color, varietal].filter(Boolean).join(" ") || varietal;
   const res = await fetch(`${WORKER_URL}/pairings`, {
     method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({winery, wine, vintage, varietal, region}),
+    body: JSON.stringify({winery, wine, vintage, varietal: varietalCtx, region}),
   });
   return res.json();
 }
 
 async function fetchPairingsForWine(wine) {
   try {
-    const data = await callPairingsAPI(wine.winery, wine.wine, wine.vintage, wine.varietal, wine.region);
+    const data = await callPairingsAPI(wine.winery, wine.wine, wine.vintage, wine.varietal, wine.region, wine.color);
     if (data.pairings) {
       await updateWine(wine.id, {
-        pairings:    data.pairings,
+        pairings:    data.pairings.slice(0, 4),
         drinkWindow: data.drinkWindow ||null,
         servingTip:  data.servingTip  ||null,
         pairingsAt:  Date.now(),
@@ -1856,11 +1857,6 @@ function startMultiScanCamera() {
             addWineForm._enrichNote=enriched.note||null;
           }
         } catch(_){}
-        addWineScreen="pairings"; renderAddWineModal();
-        try {
-          const pd=await callPairingsAPI(addWineForm.winery,addWineForm.wine,addWineForm.vintage,addWineForm.varietal,addWineForm.region);
-          if(pd.pairings){addWineForm._pairings=pd.pairings; addWineForm._drinkWindow=pd.drinkWindow||null; addWineForm._servingTip=pd.servingTip||null;}
-        } catch(_){}
         addWineScreen="queue-form"; renderAddWineModal();
       } catch(_){addWineScanError="Scan failed — fill in manually."; addWineScreen="form"; renderAddWineModal();}
     };
@@ -1906,11 +1902,6 @@ async function continueSingleScan() {
         addWineForm._enrichNote = enriched.note || null;
       }
     } catch(e) { console.warn("Enrich failed:", e); }
-    addWineScreen = "pairings"; renderAddWineModal();
-    try {
-      const pd = await callPairingsAPI(addWineForm.winery, addWineForm.wine, addWineForm.vintage, addWineForm.varietal, addWineForm.region);
-      if (pd.pairings) { addWineForm._pairings = pd.pairings; addWineForm._drinkWindow = pd.drinkWindow||null; addWineForm._servingTip = pd.servingTip||null; }
-    } catch(e) { console.warn("Pairings failed:", e); }
     addWineScreen = "form"; renderAddWineModal();
   } catch { addWineScanError = "Scan failed — fill in manually."; addWineScreen = "form"; renderAddWineModal(); }
 }
@@ -1997,7 +1988,7 @@ function renderAddWineModal() {
               return f;
             });
             scanQueueIndex=0;
-            // Enrich + pairings for each wine before showing confirm screens
+            // Enrich each wine before showing confirm screens
             for(let i=0;i<scanQueue.length;i++){
               scanQueueIndex=i;
               const q=scanQueue[i];
@@ -2014,11 +2005,6 @@ function renderAddWineModal() {
                   if(enriched.drinkTo) q.drinkTo=String(enriched.drinkTo);
                   q._enrichNote=enriched.note||null;
                 }
-              } catch(_){}
-              addWineScreen="pairings"; renderAddWineModal();
-              try {
-                const pd=await callPairingsAPI(q.winery,q.wine,q.vintage,q.varietal,q.region);
-                if(pd.pairings){q._pairings=pd.pairings; q._drinkWindow=pd.drinkWindow||null; q._servingTip=pd.servingTip||null;}
               } catch(_){}
             }
             // Show first confirmation screen
@@ -2105,23 +2091,22 @@ function renderAddWineModal() {
     sheet.appendChild(sbContinueBtn);
   }
 
-  else if (addWineScreen==="scanning" || addWineScreen==="enriching" || addWineScreen==="pairings") {
+  else if (addWineScreen==="scanning" || addWineScreen==="enriching") {
     if(addWineScanPreview){
       const img=document.createElement("img"); img.src=addWineScanPreview;
       img.style.cssText="width:100%;max-height:200px;object-fit:contain;border-radius:12px;margin-bottom:20px;background:#f5ede0";
       sheet.appendChild(img);
     }
-    const stepNum = addWineScreen==="scanning"?1:addWineScreen==="enriching"?2:3;
+    const stepNum = addWineScreen==="scanning"?1:2;
     const multiCtx = scanQueue.length>1 ? ` (wine ${scanQueueIndex+1} of ${scanQueue.length})` : "";
     const stepDefs = [
       {label:addWineScanB64Back?"Reading labels…":"Reading label…", sub:"Claude is analyzing your photo"},
       {label:`Looking up wine data…${multiCtx}`,           sub:"Looking up scores, pricing & drink window"},
-      {label:`Finding food pairings…${multiCtx}`,          sub:"Matching with food & serving tips"},
     ];
     const stepsEl = document.createElement("div"); stepsEl.style.marginBottom="20px";
     stepDefs.forEach((def,i)=>{
       const n=i+1, done=n<stepNum, active=n===stepNum;
-      const row=document.createElement("div"); row.style.cssText="display:flex;align-items:center;gap:10px"+(i<2?";margin-bottom:10px":"");
+      const row=document.createElement("div"); row.style.cssText="display:flex;align-items:center;gap:10px"+(i<1?";margin-bottom:10px":"");
       const circle=document.createElement("div");
       circle.style.cssText=`width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;border:2px solid ${done||active?"var(--gold)":"var(--border)"};background:${done?"var(--gold)":active?"rgba(184,134,11,0.15)":"rgba(184,134,11,0.08)"};color:${done?"white":"var(--gold)"}`;
       if(active){ const sp=document.createElement("div"); sp.className="spinner"; sp.style.cssText="width:16px;height:16px;flex-shrink:0;border-width:2px"; circle.appendChild(sp); }
@@ -2244,19 +2229,6 @@ function renderAddWineModal() {
     // Trip selector
     renderTripSelectorField(form);
 
-    // Food pairings preview (pre-fetched during scan)
-    if(addWineForm._pairings?.length) {
-      const pairWrap=document.createElement("div");
-      pairWrap.appendChild(html(`<div class="field-label">Food Pairings</div>`));
-      const chips=document.createElement("div"); chips.style.cssText="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px";
-      addWineForm._pairings.forEach(p=>{
-        const fp=FOOD_PAIRINGS.find(f=>(FOOD_ALIASES[f.id]||[f.id]).some(a=>p.toLowerCase().includes(a)));
-        const emoji=fp?fp.emoji:"🍽️";
-        chips.appendChild(html(`<span style="background:rgba(184,134,11,0.12);border:1px solid rgba(184,134,11,0.3);border-radius:20px;padding:4px 10px;font-size:13px">${emoji} ${p}</span>`));
-      });
-      pairWrap.appendChild(chips); form.appendChild(pairWrap);
-    }
-
     sheet.appendChild(form);
 
     // Actions
@@ -2299,7 +2271,6 @@ function renderAddWineModal() {
       };
       await saveWine(wine);
       root.innerHTML="";
-      if(!wine.pairings) fetchPairingsForWine(wine);
       fetchCriticsForWine(wine);
     };
     actions.appendChild(cancel); actions.appendChild(save);
@@ -2413,18 +2384,6 @@ function renderAddWineModal() {
     notesWrap.appendChild(ta); form.appendChild(notesWrap);
     // Trip selector
     renderTripSelectorField(form);
-    // Pairings preview
-    if(addWineForm._pairings?.length){
-      const pairWrap=document.createElement("div");
-      pairWrap.appendChild(html(`<div class="field-label">Food Pairings</div>`));
-      const chips=document.createElement("div"); chips.style.cssText="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px";
-      addWineForm._pairings.forEach(p=>{
-        const fp=FOOD_PAIRINGS.find(f=>(FOOD_ALIASES[f.id]||[f.id]).some(a=>p.toLowerCase().includes(a)));
-        const emoji=fp?fp.emoji:"🍽️";
-        chips.appendChild(html(`<span style="background:rgba(184,134,11,0.12);border:1px solid rgba(184,134,11,0.3);border-radius:20px;padding:4px 10px;font-size:13px">${emoji} ${p}</span>`));
-      });
-      pairWrap.appendChild(chips); form.appendChild(pairWrap);
-    }
     sheet.appendChild(form);
 
     // Actions
@@ -2462,7 +2421,6 @@ function renderAddWineModal() {
         if(!validate()) return;
         scanAnother.textContent="Saving…"; scanAnother.disabled=true;
         const wine=await buildWineObj(); await saveWine(wine);
-        if(!wine.pairings) fetchPairingsForWine(wine);
         fetchCriticsForWine(wine);
         scanQueueSaved++;
         startMultiScanCamera();
@@ -2472,7 +2430,6 @@ function renderAddWineModal() {
         if(!validate()) return;
         saveDone.textContent="Saving…"; saveDone.disabled=true;
         const wine=await buildWineObj(); await saveWine(wine);
-        if(!wine.pairings) fetchPairingsForWine(wine);
         fetchCriticsForWine(wine);
         root.innerHTML="";
       };
@@ -2493,7 +2450,6 @@ function renderAddWineModal() {
         if(!validate()) return;
         saveQ.textContent="Saving…"; saveQ.disabled=true;
         const wine=await buildWineObj(); await saveWine(wine);
-        if(!wine.pairings) fetchPairingsForWine(wine);
         fetchCriticsForWine(wine);
         if(isLast){ root.innerHTML=""; return; }
         scanQueueIndex++; addWineForm={...scanQueue[scanQueueIndex]}; renderAddWineModal();
@@ -2603,6 +2559,7 @@ function renderAssignModal(wine) {
       for(const [sl,wid] of Object.entries(slots[lid]||{}))
         if(wid===wine.id) await clearSlot(lid,sl);
     await saveSlot(assignLoc,assignSlot,wine.id);
+    if(!wine.pairings) fetchPairingsForWine(wine);
     root.innerHTML="";
   };
   sheet.appendChild(saveBtn);
@@ -2886,7 +2843,7 @@ function renderEditWineModal(wine) {
             } catch(_) {}
             statusDiv.textContent = "Fetching pairings…";
             try {
-              const pd = await callPairingsAPI(editWineForm.winery, editWineForm.wine, editWineForm.vintage, editWineForm.varietal, editWineForm.region);
+              const pd = await callPairingsAPI(editWineForm.winery, editWineForm.wine, editWineForm.vintage, editWineForm.varietal, editWineForm.region, editWineForm.color);
               if (pd.pairings) { editWineForm._pairings=pd.pairings; editWineForm._drinkWindow=pd.drinkWindow||null; editWineForm._servingTip=pd.servingTip||null; }
             } catch(_) {}
             renderEditWineModal(wine);
