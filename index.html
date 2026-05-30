@@ -589,10 +589,11 @@ function generateCustomSlots(rows, cols) {
   return s;
 }
 
-function generateSectionSlots(sectionDefs, cols) {
+function generateSectionSlots(sectionDefs, defaultCols) {
   const s = [];
   let num = 1;
   for (const sec of sectionDefs) {
+    const cols = sec.cols || defaultCols;
     for (let r = 1; r <= sec.rows; r++) {
       for (let c = 1; c <= cols; c++) {
         s.push(`${sec.id}-R${r}-${String(num).padStart(2, "0")}`);
@@ -1686,7 +1687,7 @@ function renderCellarContent() {
     const label = isCloset ? secDef.label :
                   /^R\d+$/.test(secId) ? `Row ${secId.replace("R","")}` :
                   `Section ${secId}`;
-    const colCount = loc.grid.sectionCols ? loc.grid.sectionCols[secId] : loc.grid.cols;
+    const colCount = secDef.cols || (loc.grid.sectionCols ? loc.grid.sectionCols[secId] : loc.grid.cols);
     const secSlots = (loc.slots||[]).filter(s=>s.startsWith(secId));
 
     const secDiv = document.createElement("div");
@@ -2863,7 +2864,7 @@ function renderAssignModal(wine) {
 
   sections.forEach(secDef=>{
     const secId   = secDef.id;
-    const colCount= loc.grid.sectionCols ? loc.grid.sectionCols[secId] : loc.grid.cols;
+    const colCount= secDef.cols || (loc.grid.sectionCols ? loc.grid.sectionCols[secId] : loc.grid.cols);
     const label   = isCloset ? secDef.label :
                     /^R\d+$/.test(secId) ? `Row ${secId.replace("R","")}` :
                     `Section ${secId}`;
@@ -3907,10 +3908,11 @@ function _showLocationModal(existingLoc) {
   let currentMode = hasSections ? "sections" : "simple";
 
   // Sections state (mutable, shared between renders)
+  // Each entry: {rows, cols} — cols can differ per section
   let sectionDefs = hasSections
-    ? existingLoc.grid.sections.map(s=>({rows:s.rows}))
-    : [{rows:2}];
-  let sectionsColsVal = hasSections ? (existingLoc.grid.cols||8) : 8;
+    ? existingLoc.grid.sections.map(s=>({rows:s.rows, cols:s.cols||existingLoc.grid.cols||8}))
+    : [{rows:2, cols:8}];
+  let sectionsColsVal = hasSections ? (existingLoc.grid.cols||8) : 8; // default for new sections
 
   function hasOccupiedSlots() {
     return !!(existingLoc && Object.values(slots[existingLoc.id]||{}).some(Boolean));
@@ -3989,9 +3991,8 @@ function _showLocationModal(existingLoc) {
       const secList = document.createElement("div"); secList.style.cssText="display:flex;flex-direction:column;gap:6px";
 
       function updateSectionsPreview() {
-        const cols=parseInt(secColsInp.value)||0;
-        const total=sectionDefs.reduce((a,s)=>a+(s.rows||0),0)*cols;
-        secPreviewDiv.textContent = sectionDefs.length && cols
+        const total=sectionDefs.reduce((a,s)=>a+(s.rows||0)*(s.cols||sectionsColsVal||1),0);
+        secPreviewDiv.textContent = sectionDefs.length
           ? `${sectionDefs.length} section${sectionDefs.length>1?"s":""} · ${total} slots total`
           : "";
       }
@@ -4000,17 +4001,24 @@ function _showLocationModal(existingLoc) {
         secList.innerHTML="";
         sectionDefs.forEach((sec,i)=>{
           const row=document.createElement("div");
-          row.style.cssText="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--surface-2,#f0e8d8);border-radius:8px;border:1px solid var(--border)";
+          row.style.cssText="display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--surface-2,#f0e8d8);border-radius:8px;border:1px solid var(--border)";
           const label=document.createElement("span");
           label.textContent=`Section ${i+1}`;
-          label.style.cssText="flex:1;font-size:13px;color:var(--ink);font-weight:600";
+          label.style.cssText="flex:1;font-size:13px;color:var(--ink);font-weight:600;min-width:0";
           const rowsLabel=document.createElement("span");
-          rowsLabel.textContent="Rows";
-          rowsLabel.style.cssText="font-size:12px;color:var(--brown-mid)";
+          rowsLabel.textContent="R";
+          rowsLabel.style.cssText="font-size:12px;color:var(--brown-mid);white-space:nowrap";
           const rowsInpS=document.createElement("input");
-          rowsInpS.inputMode="numeric"; rowsInpS.value=sec.rows||2;
-          rowsInpS.style.cssText="width:52px;text-align:center;padding:6px";
+          rowsInpS.inputMode="numeric"; rowsInpS.value=sec.rows||1;
+          rowsInpS.style.cssText="width:44px;text-align:center;padding:6px";
           rowsInpS.oninput=()=>{ sectionDefs[i].rows=Math.max(1,parseInt(rowsInpS.value)||1); updateSectionsPreview(); };
+          const colsLabel=document.createElement("span");
+          colsLabel.textContent="C";
+          colsLabel.style.cssText="font-size:12px;color:var(--brown-mid);white-space:nowrap";
+          const colsInpS=document.createElement("input");
+          colsInpS.inputMode="numeric"; colsInpS.value=sec.cols||sectionsColsVal||8;
+          colsInpS.style.cssText="width:44px;text-align:center;padding:6px";
+          colsInpS.oninput=()=>{ sectionDefs[i].cols=Math.max(1,parseInt(colsInpS.value)||1); updateSectionsPreview(); };
           const delBtn=document.createElement("button");
           delBtn.textContent="×"; delBtn.type="button";
           delBtn.style.cssText="background:none;border:none;font-size:18px;color:var(--brown-mid);cursor:pointer;padding:0 2px;line-height:1";
@@ -4018,7 +4026,8 @@ function _showLocationModal(existingLoc) {
             if(sectionDefs.length<=1){alert("At least one section is required.");return;}
             maybeWarnDataLoss(()=>{ sectionDefs.splice(i,1); rebuildSecList(); updateSectionsPreview(); });
           };
-          row.appendChild(label); row.appendChild(rowsLabel); row.appendChild(rowsInpS); row.appendChild(delBtn);
+          row.appendChild(label); row.appendChild(rowsLabel); row.appendChild(rowsInpS);
+          row.appendChild(colsLabel); row.appendChild(colsInpS); row.appendChild(delBtn);
           secList.appendChild(row);
         });
       }
@@ -4026,14 +4035,14 @@ function _showLocationModal(existingLoc) {
       gridArea.appendChild(secList);
 
       const addSecBtn=html(`<button type="button" class="btn-sm" style="margin-top:4px;width:100%">＋ Add Section</button>`);
-      addSecBtn.onclick=()=>{ sectionDefs.push({rows:2}); rebuildSecList(); updateSectionsPreview(); };
+      addSecBtn.onclick=()=>{ sectionDefs.push({rows:1,cols:sectionsColsVal||8}); rebuildSecList(); updateSectionsPreview(); };
       gridArea.appendChild(addSecBtn);
 
       const secColsWrap=document.createElement("div"); secColsWrap.style.cssText="display:flex;align-items:center;gap:10px;margin-top:4px";
-      secColsWrap.appendChild(html(`<div class="field-label" style="margin:0;white-space:nowrap">Columns per section</div>`));
+      secColsWrap.appendChild(html(`<div class="field-label" style="margin:0;white-space:nowrap">Default columns (new sections)</div>`));
       const secColsInp=document.createElement("input"); secColsInp.inputMode="numeric";
       secColsInp.value=sectionsColsVal; secColsInp.style.cssText="width:70px;text-align:center";
-      secColsInp.oninput=()=>{ sectionsColsVal=Math.max(1,parseInt(secColsInp.value)||1); updateSectionsPreview(); };
+      secColsInp.oninput=()=>{ sectionsColsVal=Math.max(1,parseInt(secColsInp.value)||1); };
       secColsWrap.appendChild(secColsInp);
       gridArea.appendChild(secColsWrap);
 
@@ -4083,22 +4092,28 @@ function _showLocationModal(existingLoc) {
         grid:{sections:Array.from({length:rows2},(_,i)=>`R${i+1}`),cols:cols2,sectionCols:null}
       };
     } else {
-      const cols2=Math.max(1,parseInt(gridArea._secColsInp?.value)||8);
       if(!sectionDefs.length){alert("Add at least one section.");return;}
+      const defaultCols=sectionsColsVal||8;
       let runningStart=1;
       const sectionsWithLabels=sectionDefs.map((sec,i)=>{
         const rows2=Math.max(1,sec.rows||1);
+        const cols2=Math.max(1,sec.cols||defaultCols);
         const count=rows2*cols2;
         const label=`Section ${i+1} · Slots ${runningStart}–${runningStart+count-1}`;
         runningStart+=count;
-        return{id:`S${i+1}`,rows:rows2,label};
+        return{id:`S${i+1}`,rows:rows2,cols:cols2,label};
       });
-      const newSlots=generateSectionSlots(sectionsWithLabels,cols2);
+      // grid.cols = most common column count (used as fallback in render)
+      const allCols=sectionsWithLabels.map(s=>s.cols);
+      const gridCols=allCols.sort((a,b)=>
+        allCols.filter(v=>v===b).length-allCols.filter(v=>v===a).length
+      )[0]||defaultCols;
+      const newSlots=generateSectionSlots(sectionsWithLabels,defaultCols);
       const changed=JSON.stringify(newSlots)!==JSON.stringify(existingLoc?.slots);
       if(changed&&hasOccupiedSlots()){
         if(!confirm("Changing the grid layout will orphan existing slot assignments. Wines will not be deleted. Continue?"))return;
       }
-      locObj={...baseFields, slots:newSlots, grid:{sections:sectionsWithLabels,cols:cols2}};
+      locObj={...baseFields, slots:newSlots, grid:{sections:sectionsWithLabels,cols:gridCols}};
       // No top-level rows/cols — ensures Firebase loading uses stored data directly
     }
     save.disabled=true; save.textContent="Saving…";
