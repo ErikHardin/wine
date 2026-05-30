@@ -3490,7 +3490,7 @@ function renderSettingsSectionLocations() {
       sec.appendChild(html(`<div style="color:var(--brown-pale);font-size:13px">Loading locations…</div>`));
     } else {
       const list = document.createElement("div");
-      locs.forEach(loc => {
+      locs.forEach((loc, idx) => {
         const occ = Object.values(slots[loc.id]||{}).filter(Boolean).length;
         const row = document.createElement("div"); row.className = "loc-row";
         const icon = document.createElement("div"); icon.className="loc-row-icon"; icon.textContent=loc.icon||"📦";
@@ -3500,14 +3500,38 @@ function renderSettingsSectionLocations() {
         count.textContent=`${occ} of ${(loc.slots||[]).length} slots used`;
         info.appendChild(name); info.appendChild(count);
         const acts = document.createElement("div"); acts.className="loc-row-actions";
+
+        // Reorder buttons
+        const upBtn = document.createElement("button"); upBtn.className="btn-sm"; upBtn.textContent="↑";
+        upBtn.disabled = idx === 0;
+        upBtn.onclick = async () => {
+          const prev = locs[idx - 1];
+          const prevOrder = prev.order ?? idx - 1;
+          const curOrder  = loc.order  ?? idx;
+          await Promise.all([
+            saveLocation({...loc,  order: prevOrder}),
+            saveLocation({...prev, order: curOrder})
+          ]);
+        };
+        const downBtn = document.createElement("button"); downBtn.className="btn-sm"; downBtn.textContent="↓";
+        downBtn.disabled = idx === locs.length - 1;
+        downBtn.onclick = async () => {
+          const next = locs[idx + 1];
+          const nextOrder = next.order ?? idx + 1;
+          const curOrder  = loc.order  ?? idx;
+          await Promise.all([
+            saveLocation({...loc,  order: nextOrder}),
+            saveLocation({...next, order: curOrder})
+          ]);
+        };
+
         const editBtn = document.createElement("button"); editBtn.className="btn-sm"; editBtn.textContent="Edit";
         editBtn.onclick=()=>showEditLocationModal(loc);
-        acts.appendChild(editBtn);
-        if (loc.isCustom) {
-          const delBtn = document.createElement("button"); delBtn.className="btn-sm danger"; delBtn.textContent="Delete";
-          delBtn.onclick=()=>showDeleteLocationConfirm(loc.id);
-          acts.appendChild(delBtn);
-        }
+        const delBtn = document.createElement("button"); delBtn.className="btn-sm danger"; delBtn.textContent="Delete";
+        delBtn.onclick=()=>showDeleteLocationConfirm(loc.id);
+
+        acts.appendChild(upBtn); acts.appendChild(downBtn);
+        acts.appendChild(editBtn); acts.appendChild(delBtn);
         row.appendChild(icon); row.appendChild(info); row.appendChild(acts);
         list.appendChild(row);
       });
