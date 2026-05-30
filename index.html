@@ -3367,7 +3367,7 @@ function showSlotDetail(locId,slot,wine){
 // ── SETTINGS OVERLAY ─────────────────────────────────────────────
 function showSettings() {
   if (document.getElementById("settings-overlay")) return;
-  settingsExpanded = { locations: false, varietals: false, bulk: false };
+  settingsExpanded = { locations: false, varietals: false, bulk: false, deleteWine: false };
   const overlay = document.createElement("div");
   overlay.id = "settings-overlay";
   overlay.className = "settings-overlay";
@@ -3528,9 +3528,9 @@ function renderSettingsSectionDeleteWine() {
 
     function showWineDeleteConfirm(wine, locId, slot) {
       const overlay = document.createElement("div");
-      overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:3000;display:flex;align-items:center;justify-content:center;padding:20px";
+      overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;-webkit-transform:translateZ(0);transform:translateZ(0)";
       const box = document.createElement("div");
-      box.style.cssText = "background:var(--bg);border-radius:16px;padding:20px;max-width:300px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,0.3)";
+      box.style.cssText = "background:var(--cream,#f5ede0);border-radius:16px;padding:20px;max-width:300px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,0.4);border:1px solid var(--border)";
       const wineName = wine.wine || "this wine";
       const winery = wine.winery ? ` by ${wine.winery}` : "";
       box.innerHTML = `<div style="font-family:'Cormorant Garamond',serif;font-size:18px;font-weight:700;color:var(--ink);margin-bottom:8px">Delete Wine?</div>
