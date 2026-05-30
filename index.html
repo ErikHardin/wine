@@ -3981,7 +3981,7 @@ function _showLocationModal(existingLoc) {
       updatePrev2();
       gridArea.appendChild(prevDiv2);
       // Store refs for save handler
-      gridArea._rowsInp=rowsInp2; gridArea._colsInp=colsInp2;
+      gridArea._rowsInp=rowsInp2; gridArea._colsInp=colsInp2; gridArea._undetectable=detected.undetectable;
     } else {
       // Sections mode
       gridArea.appendChild(html(`<div class="field-label">Sections</div>`));
@@ -4068,6 +4068,10 @@ function _showLocationModal(existingLoc) {
     if(currentMode==="simple"){
       const rows2=Math.max(1,parseInt(gridArea._rowsInp?.value)||4);
       const cols2=Math.max(1,parseInt(gridArea._colsInp?.value)||6);
+      if(gridArea._undetectable && (!parseInt(gridArea._rowsInp?.value) || !parseInt(gridArea._colsInp?.value))){
+        alert("This location uses a layout that cannot be auto-detected. Enter explicit Rows and Columns values, or switch to Sections mode to reconfigure.");
+        return;
+      }
       const newSlots=generateCustomSlots(rows2,cols2);
       const changed=JSON.stringify(newSlots)!==JSON.stringify(existingLoc?.slots);
       if(changed&&hasOccupiedSlots()){
