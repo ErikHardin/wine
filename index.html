@@ -3679,14 +3679,17 @@ function renderSettingsSectionUsers() {
       users.sort((a, b) => a.email.localeCompare(b.email)).forEach(u => {
         const isPrimary = u.email.toLowerCase() === PRIMARY_ADMIN.toLowerCase();
         const row = document.createElement("div");
-        row.style.cssText = "display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border-2)";
+        row.style.cssText = "padding:10px 0;border-bottom:1px solid var(--border-2)";
 
-        const emailSpan = document.createElement("span");
-        emailSpan.style.cssText = "flex:1;font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
-        emailSpan.textContent = u.email;
+        const emailLine = document.createElement("div");
+        emailLine.style.cssText = "font-size:13px;color:var(--ink);margin-bottom:6px;word-break:break-all";
+        emailLine.textContent = u.email;
+
+        const controlsLine = document.createElement("div");
+        controlsLine.style.cssText = "display:flex;align-items:center;gap:8px";
 
         const roleSelect = document.createElement("select");
-        roleSelect.style.cssText = "font-size:12px;border:1px solid var(--border);border-radius:6px;padding:3px 6px;background:var(--surface-2);color:var(--brown-mid)";
+        roleSelect.style.cssText = "font-size:12px;border:1px solid var(--border);border-radius:6px;padding:3px 8px;background:var(--surface-2);color:var(--brown-mid)";
         ["admin", "user"].forEach(r => {
           const opt = document.createElement("option");
           opt.value = r;
@@ -3700,8 +3703,7 @@ function renderSettingsSectionUsers() {
           await update(ref(db, `config/users/${key}`), { role: roleSelect.value });
         };
 
-        row.appendChild(emailSpan);
-        row.appendChild(roleSelect);
+        controlsLine.appendChild(roleSelect);
 
         if (!isPrimary) {
           const removeBtn = document.createElement("button");
@@ -3713,8 +3715,11 @@ function renderSettingsSectionUsers() {
             const key = emailToKey(u.email);
             await remove(ref(db, `config/users/${key}`));
           };
-          row.appendChild(removeBtn);
+          controlsLine.appendChild(removeBtn);
         }
+
+        row.appendChild(emailLine);
+        row.appendChild(controlsLine);
         list.appendChild(row);
       });
       sec.appendChild(list);
