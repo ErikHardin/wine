@@ -1914,7 +1914,7 @@ function renderConsumedTab() {
     const loc=c.locId?allLocations[c.locId]:null;
     const d=new Date(c.consumedAt);
     const dateStr=d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});
-    frag.appendChild(html(`<div class="card" style="opacity:0.88">
+    const card=html(`<div class="card" style="opacity:0.88;cursor:pointer">
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
         <div style="flex:1;min-width:0">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
@@ -1930,12 +1930,94 @@ function renderConsumedTab() {
             ${c.pairings.slice(0,3).map(p=>`<span style="background:rgba(184,134,11,0.08);border-radius:10px;padding:2px 8px;color:var(--brown-pale);font-size:10px">${p}</span>`).join("")}
           </div>`:""}
         </div>
-        <div style="color:var(--brown-pale);font-size:10px;text-align:right;flex-shrink:0;margin-left:10px">${dateStr}</div>
+        <div style="color:var(--brown-pale);font-size:10px;text-align:right;flex-shrink:0;margin-left:10px">${dateStr}<div style="margin-top:4px;font-size:9px;letter-spacing:0.5px;opacity:0.7">tap for details</div></div>
       </div>
-    </div>`));
+    </div>`);
+    card.onclick=()=>showConsumedProfile(c);
+    frag.appendChild(card);
   });
 
   return frag;
+}
+
+// ── CONSUMED PROFILE MODAL ───────────────────────────────────────
+function showConsumedProfile(entry) {
+  const root=el("modal-root"); root.innerHTML="";
+  const overlay=document.createElement("div"); overlay.className="modal-overlay";
+  const sheet=document.createElement("div"); sheet.className="modal-sheet";
+  overlay.onclick=e=>{ if(e.target===overlay) root.innerHTML=""; };
+
+  const loc=entry.locId?allLocations[entry.locId]:null;
+  const d=new Date(entry.consumedAt);
+  const dateStr=d.toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"});
+  const status=drinkStatus(entry);
+
+  sheet.appendChild(html(`<div class="modal-handle"></div>`));
+
+  // Close button
+  const closeRow=document.createElement("div"); closeRow.style.cssText="display:flex;justify-content:flex-end;margin-bottom:4px";
+  const closeBtn=html(`<button style="background:none;border:none;font-size:22px;color:var(--brown-pale);cursor:pointer;padding:0;line-height:1">×</button>`);
+  closeBtn.onclick=()=>root.innerHTML="";
+  closeRow.appendChild(closeBtn); sheet.appendChild(closeRow);
+
+  // Consumed badge
+  sheet.appendChild(html(`<div style="display:inline-flex;align-items:center;gap:6px;background:rgba(139,38,53,0.08);border:1px solid rgba(139,38,53,0.2);border-radius:20px;padding:4px 12px;margin-bottom:12px">
+    <span style="font-size:13px">🍷</span>
+    <span style="color:var(--red-wine);font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase">Consumed ${dateStr}</span>
+  </div>`));
+
+  // Title
+  sheet.appendChild(html(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:5px">
+    <div class="color-dot" style="background:${colorDot(entry.color)}"></div>
+    <span style="color:var(--brown-mid);font-size:11px;letter-spacing:2px;text-transform:uppercase">${entry.color||""}${entry.varietal?" · "+entry.varietal:""}</span>
+  </div>`));
+  sheet.appendChild(html(`<div style="font-family:'Cormorant Garamond',serif;font-size:23px;font-weight:800;color:var(--ink);line-height:1.2;margin-bottom:2px">${entry.wine}</div>`));
+  sheet.appendChild(html(`<div style="color:var(--brown-light);font-size:14px;font-style:italic;margin-bottom:14px">${entry.winery}</div>`));
+
+  // Tags
+  const tags=document.createElement("div"); tags.style.cssText="display:flex;gap:7px;margin-bottom:16px;flex-wrap:wrap";
+  if(entry.vintage) tags.appendChild(html(`<span class="pill">${entry.vintage}</span>`));
+  if(entry.region)  tags.appendChild(html(`<span class="pill">${entry.region}</span>`));
+  if(entry.score)   tags.appendChild(html(`<span class="pill" style="background:${scoreColor(entry.score)}18;border-color:${scoreColor(entry.score)}44;color:${scoreColor(entry.score)};font-weight:800;font-family:monospace">${entry.score}pts</span>`));
+  if(entry.price>0) tags.appendChild(html(`<span class="pill">${formatPrice(entry)}</span>`));
+  sheet.appendChild(tags);
+
+  // Was stored in
+  if(loc) {
+    sheet.appendChild(html(`<div style="background:${loc.color}12;border:1px solid ${loc.color}33;border-radius:12px;padding:12px 14px;margin-bottom:14px;display:flex;align-items:center;gap:12px">
+      <div style="font-size:24px">${loc.icon}</div>
+      <div>
+        <div style="color:var(--brown-pale);font-size:10px;letter-spacing:2px;text-transform:uppercase">Was stored in</div>
+        <div style="font-family:'Cormorant Garamond',serif;font-size:15px;font-weight:700;color:${loc.color}">${loc.name} · ${entry.slot}</div>
+      </div>
+    </div>`));
+  }
+
+  // Pairings
+  if(entry.pairings?.length) {
+    const aiBox=html(`<div style="background:rgba(184,134,11,0.06);border:1px solid rgba(184,134,11,0.2);border-radius:14px;padding:14px;margin-bottom:14px">
+      <div style="color:var(--gold);font-size:11px;letter-spacing:2px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif;margin-bottom:10px">🤖 AI Sommelier</div>
+    </div>`);
+    const pairingWrap=document.createElement("div"); pairingWrap.style.cssText="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:${entry.drinkWindow?'10px':'0'}";
+    entry.pairings.forEach(p=>pairingWrap.appendChild(html(`<span style="background:rgba(184,134,11,0.1);border:1px solid rgba(184,134,11,0.2);border-radius:20px;padding:4px 12px;color:var(--gold);font-size:13px">${p}</span>`)));
+    aiBox.appendChild(pairingWrap);
+    if(entry.drinkWindow) aiBox.appendChild(html(`<div style="color:var(--brown-mid);font-size:12px;margin-top:6px;font-style:italic">${entry.drinkWindow}</div>`));
+    sheet.appendChild(aiBox);
+  }
+
+  // Notes
+  if(entry.notes) sheet.appendChild(html(`<div style="background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:14px 16px;color:var(--brown-mid);font-size:14px;font-style:italic;line-height:1.6;margin-bottom:14px">"${entry.notes}"</div>`));
+
+  // Return to Cellar button
+  const returnBtn=html(`<button class="btn-primary" style="width:100%">↩ Return to Cellar</button>`);
+  returnBtn.onclick=async()=>{
+    root.innerHTML="";
+    await returnToCellar(entry);
+  };
+  sheet.appendChild(returnBtn);
+
+  overlay.appendChild(sheet);
+  root.appendChild(overlay);
 }
 
 // ── ADD WINE MODAL ───────────────────────────────────────────────
@@ -3308,7 +3390,6 @@ function renderSettingsBody() {
   body.appendChild(renderSettingsSectionLocations());
   body.appendChild(renderSettingsSectionVarietals());
   body.appendChild(renderSettingsSectionBulkRefresh());
-  body.appendChild(renderSettingsSectionReturnConsumed());
 }
 
 function renderSettingsSectionLocations() {
@@ -3468,41 +3549,6 @@ function renderSettingsSectionBulkRefresh() {
 }
 
 
-function renderSettingsSectionReturnConsumed() {
-  const sec = document.createElement("div");
-  sec.className = "settings-section";
-  sec.appendChild(html(`<div class="settings-section-title">Return Consumed to Cellar</div>`));
-
-  const entries = Object.values(consumed).sort((a,b)=>b.consumedAt-a.consumedAt);
-  if (entries.length === 0) {
-    sec.appendChild(html(`<div style="color:var(--brown-pale);font-size:13px">No consumed bottles recorded.</div>`));
-    return sec;
-  }
-
-  const list = document.createElement("div");
-  entries.forEach(entry => {
-    const loc = entry.locId ? allLocations[entry.locId] : null;
-    const d = new Date(entry.consumedAt);
-    const dateStr = d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});
-    const row = document.createElement("div"); row.className="consumed-row";
-    const info = document.createElement("div"); info.className="consumed-row-info";
-    const name = document.createElement("div"); name.className="consumed-row-name";
-    name.textContent = `${entry.wine}${entry.vintage?" "+entry.vintage:""}`;
-    const sub = document.createElement("div"); sub.className="consumed-row-sub";
-    sub.textContent = `${entry.winery} · ${dateStr}${loc?" · was in "+loc.name:""}`;
-    info.appendChild(name); info.appendChild(sub);
-    const retBtn = document.createElement("button"); retBtn.className="btn-sm primary"; retBtn.textContent="Return";
-    retBtn.onclick=async()=>{
-      retBtn.disabled=true; retBtn.textContent="…";
-      closeSettings();
-      await returnToCellar(entry);
-    };
-    row.appendChild(info); row.appendChild(retBtn);
-    list.appendChild(row);
-  });
-  sec.appendChild(list);
-  return sec;
-}
 
 function renderSettingsProgressBar() {
   const fill = document.getElementById("bulk-progress-fill");
