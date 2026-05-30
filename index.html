@@ -459,15 +459,17 @@
   <!-- Header -->
   <div class="app-header">
     <div style="display:flex;justify-content:space-between;align-items:flex-end">
-      <div>
-        <div style="font-size:10px;letter-spacing:4px;text-transform:uppercase;color:var(--brown-pale);margin-bottom:4px;font-family:'Cormorant Garamond',serif">Hardin Wine</div>
-        <h1>Cellar <span>Manager</span></h1>
+      <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-start">
+        <div>
+          <div style="font-size:10px;letter-spacing:4px;text-transform:uppercase;color:var(--brown-pale);margin-bottom:4px;font-family:'Cormorant Garamond',serif">Hardin Wine</div>
+          <h1>Cellar <span>Manager</span></h1>
+        </div>
+        <button id="theme-toggle" onclick="toggleTheme()" style="background:none;border:1px solid var(--border);border-radius:20px;padding:3px 10px;cursor:pointer;font-size:14px;line-height:1;color:var(--brown-mid);transition:border-color 0.2s"><span id="theme-icon">🌙</span></button>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
         <div style="display:flex;gap:6px">
           <button id="settings-btn" onclick="showSettings()" style="background:none;border:1px solid var(--border);border-radius:20px;padding:3px 10px;cursor:pointer;font-size:14px;line-height:1;color:var(--brown-mid);transition:border-color 0.2s;display:none">⚙️</button>
           <button id="signout-btn" onclick="handleSignOut()" style="background:none;border:1px solid var(--border);border-radius:20px;padding:3px 10px;cursor:pointer;font-size:12px;line-height:1;color:var(--brown-mid);transition:border-color 0.2s">Sign Out</button>
-          <button id="theme-toggle" onclick="toggleTheme()" style="background:none;border:1px solid var(--border);border-radius:20px;padding:3px 10px;cursor:pointer;font-size:14px;line-height:1;color:var(--brown-mid);transition:border-color 0.2s"><span id="theme-icon">🌙</span></button>
         </div>
         <div style="display:flex;gap:8px" id="header-badges"></div>
       </div>
@@ -3679,14 +3681,17 @@ function renderSettingsSectionUsers() {
       users.sort((a, b) => a.email.localeCompare(b.email)).forEach(u => {
         const isPrimary = u.email.toLowerCase() === PRIMARY_ADMIN.toLowerCase();
         const row = document.createElement("div");
-        row.style.cssText = "display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border-2)";
+        row.style.cssText = "padding:10px 0;border-bottom:1px solid var(--border-2)";
 
-        const emailSpan = document.createElement("span");
-        emailSpan.style.cssText = "flex:1;font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
-        emailSpan.textContent = u.email;
+        const emailLine = document.createElement("div");
+        emailLine.style.cssText = "font-size:13px;color:var(--ink);margin-bottom:6px;word-break:break-all";
+        emailLine.textContent = u.email;
+
+        const controlsLine = document.createElement("div");
+        controlsLine.style.cssText = "display:flex;align-items:center;gap:8px";
 
         const roleSelect = document.createElement("select");
-        roleSelect.style.cssText = "font-size:12px;border:1px solid var(--border);border-radius:6px;padding:3px 6px;background:var(--surface-2);color:var(--brown-mid)";
+        roleSelect.style.cssText = "font-size:12px;border:1px solid var(--border);border-radius:6px;padding:3px 8px;background:var(--surface-2);color:var(--brown-mid)";
         ["admin", "user"].forEach(r => {
           const opt = document.createElement("option");
           opt.value = r;
@@ -3700,8 +3705,7 @@ function renderSettingsSectionUsers() {
           await update(ref(db, `config/users/${key}`), { role: roleSelect.value });
         };
 
-        row.appendChild(emailSpan);
-        row.appendChild(roleSelect);
+        controlsLine.appendChild(roleSelect);
 
         if (!isPrimary) {
           const removeBtn = document.createElement("button");
@@ -3713,8 +3717,11 @@ function renderSettingsSectionUsers() {
             const key = emailToKey(u.email);
             await remove(ref(db, `config/users/${key}`));
           };
-          row.appendChild(removeBtn);
+          controlsLine.appendChild(removeBtn);
         }
+
+        row.appendChild(emailLine);
+        row.appendChild(controlsLine);
         list.appendChild(row);
       });
       sec.appendChild(list);
