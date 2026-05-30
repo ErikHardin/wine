@@ -77,7 +77,7 @@
   [data-theme="dark"] body::before { opacity: 0.06; }
 
   [data-theme="dark"] .app-header {
-    background: linear-gradient(180deg, rgba(26,16,8,0.98) 0%, rgba(26,16,8,0) 100%);
+    background: #1a1008;
   }
 
   [data-theme="dark"] #auth-screen {
@@ -193,7 +193,7 @@
   /* ── Header ── */
   .app-header {
     padding: 36px 20px 16px;
-    background: linear-gradient(180deg, rgba(245,237,224,0.95) 0%, rgba(245,237,224,0) 100%);
+    background: var(--cream);
     position: sticky; top: 0; z-index: 50;
   }
   .app-header h1 {
@@ -212,7 +212,7 @@
   .tab-bar {
     display: flex; gap: 3px;
     background: rgba(107,61,30,0.08); border-radius: 12px;
-    padding: 4px; margin-bottom: 20px;
+    padding: 4px; margin-top: 16px; margin-bottom: 0;
   }
   .tab-btn {
     flex: 1; padding: 9px 2px; border-radius: 9px;
@@ -317,7 +317,7 @@
   }
 
   /* Scroll container */
-  .scroll-content { padding: 0 20px 100px; }
+  .scroll-content { padding: 20px 20px 100px; }
 
   /* iOS safe area */
   .modal-sheet { padding-bottom: max(44px, env(safe-area-inset-bottom)); }
@@ -475,16 +475,16 @@
       </div>
     </div>
     <div class="header-divider"></div>
-  </div>
-
-  <!-- Tab content -->
-  <div class="scroll-content">
     <div class="tab-bar">
       <button class="tab-btn" onclick="switchTab('trip')" id="tab-trip">🧳 Trip</button>
       <button class="tab-btn active" onclick="switchTab('cellar')" id="tab-cellar">🗂 Cellar</button>
       <button class="tab-btn" onclick="switchTab('find')" id="tab-find">🔍 Find</button>
       <button class="tab-btn" onclick="switchTab('consumed')" id="tab-consumed">🍷 Consumed</button>
     </div>
+  </div>
+
+  <!-- Tab content -->
+  <div class="scroll-content">
     <div id="tab-content"></div>
   </div>
 </div>
