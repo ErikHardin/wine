@@ -838,7 +838,6 @@ async function seedConfigIfEmpty() {
 }
 
 async function initFirebase() {
-  await seedConfigIfEmpty();
   onValue(ref(db,"config/locations"), snap => {
     const raw = snap.val() || {};
     allLocations = Object.fromEntries(
@@ -1450,9 +1449,10 @@ function renderTripTab() {
   frag.appendChild(tripRow);
 
   // Capacity bar (only when a specific trip with capacity is selected)
+  const consumedIds = new Set(Object.keys(consumed));
   const trip = activeTrip ? trips[activeTrip] : null;
   if (trip && trip.capacity > 0) {
-    const tripWines = Object.values(wines).filter(w => w.tripId === activeTrip);
+    const tripWines = Object.values(wines).filter(w => w.tripId === activeTrip && !consumedIds.has(w.id));
     const used = tripWines.reduce((s, w) => s + (parseInt(w.qty) || 1), 0);
     const pct  = Math.min(100, Math.round(used / trip.capacity * 100));
     frag.appendChild(html(`<div style="margin-bottom:14px">
@@ -1464,9 +1464,10 @@ function renderTripTab() {
     </div>`));
   }
 
-  // Header row
+  // Header row — exclude wines already stored OR already consumed
   const unassigned = Object.values(wines).filter(w => {
     if (stored.has(w.id)) return false;
+    if (consumedIds.has(w.id)) return false;
     if (activeTrip) return w.tripId === activeTrip;
     return true;
   });
@@ -1874,9 +1875,9 @@ function renderFindCard(wine, placement) {
         <div style="display:flex;gap:8px;margin-top:7px;flex-wrap:wrap;align-items:center">
           ${wine.varietal?`<span style="color:var(--brown-pale);font-size:12px">${wine.varietal}</span>`:""}
           ${wine.score?`<span style="color:${scoreColor(wine.score)};font-size:12px;font-weight:700">${wine.score}pts</span>`:""}
-          ${wine.price>0?`<span style="color:var(--brown-mid);font-size:12px">${formatPrice(wine)}</span>`:""}
           ${status?`<span style="color:${status.color};font-size:12px">${status.emoji} ${status.label.split("·")[0].trim()}</span>`:""}
         </div>
+        ${wine.price>0?`<div style="margin-top:5px"><span style="color:var(--ink);font-size:13px;font-weight:700;font-family:'Cormorant Garamond',serif">${formatPrice(wine)}</span></div>`:""}
         ${wine.pairings?.length?`<div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap">
           ${wine.pairings.slice(0,2).map(p=>`<span style="background:rgba(184,134,11,0.1);border-radius:10px;padding:2px 8px;color:var(--brown-mid);font-size:11px">${p}</span>`).join("")}
           ${wine.pairings.length>2?`<span style="color:var(--brown-pale);font-size:11px">+${wine.pairings.length-2} more</span>`:""}
