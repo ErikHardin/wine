@@ -2964,6 +2964,11 @@ function showWineProfile(wine) {
     sheet.appendChild(html(`<div style="background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:14px 16px;color:var(--brown-mid);font-size:14px;font-style:italic;line-height:1.6;margin-bottom:14px">"${wine.notes}"</div>`));
   }
 
+  // Edit button
+  const editWineBtn=html(`<button class="btn-sm" style="width:100%;margin-bottom:8px">✏️ Edit Wine Details</button>`);
+  editWineBtn.onclick=()=>{ root.innerHTML=""; showEditWineModal(wine); };
+  sheet.appendChild(editWineBtn);
+
   // Consume button
   if(placement){
     const consumeBtn=html(`<button class="btn-danger">🍷 Mark as Consumed</button>`);
@@ -3355,6 +3360,30 @@ function renderSettingsSectionVarietals() {
   const pillsWrap = document.createElement("div");
   pillsWrap.style.cssText = "display:flex;flex-wrap:wrap;gap:0;max-height:160px;overflow-y:auto;padding:4px 0;border:1px solid var(--border);border-radius:8px;padding:6px;margin-bottom:10px";
 
+  function showVarietalDeleteConfirm(v) {
+    const overlay = document.createElement("div");
+    overlay.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:3000;display:flex;align-items:center;justify-content:center;padding:20px";
+    const box = document.createElement("div");
+    box.style.cssText="background:var(--bg);border-radius:16px;padding:20px;max-width:300px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,0.3)";
+    box.innerHTML=`<div style="font-family:'Cormorant Garamond',serif;font-size:18px;font-weight:700;color:var(--ink);margin-bottom:8px">Remove Varietal?</div>
+      <div style="color:var(--brown-mid);font-size:14px;margin-bottom:16px">Remove "<strong>${v}</strong>" from the list?</div>`;
+    const btnRow = document.createElement("div"); btnRow.style.cssText="display:flex;gap:10px";
+    const cancelB = document.createElement("button"); cancelB.className="btn-ghost"; cancelB.style.flex="1"; cancelB.textContent="Cancel";
+    cancelB.onclick=()=>{ if(overlay.parentNode) document.body.removeChild(overlay); };
+    const removeB = document.createElement("button"); removeB.className="btn-sm danger"; removeB.style.cssText="flex:1;padding:10px"; removeB.textContent="Remove";
+    removeB.onclick=async()=>{
+      removeB.disabled=true;
+      if(overlay.parentNode) document.body.removeChild(overlay);
+      const updated = allVarietals.filter(x=>x!==v);
+      await saveVarietals(updated.length ? updated : []);
+    };
+    btnRow.appendChild(cancelB); btnRow.appendChild(removeB);
+    box.appendChild(btnRow);
+    overlay.appendChild(box);
+    overlay.onclick=e=>{ if(e.target===overlay && overlay.parentNode) document.body.removeChild(overlay); };
+    document.body.appendChild(overlay);
+  }
+
   function renderPills(filter) {
     pillsWrap.innerHTML = "";
     const filtered = filter ? list.filter(v => v.toLowerCase().includes(filter.toLowerCase())) : list;
@@ -3368,10 +3397,7 @@ function renderSettingsSectionVarietals() {
       pill.textContent = v;
       const rm = document.createElement("button");
       rm.className = "varietal-pill-remove"; rm.textContent = "×"; rm.title = "Remove";
-      rm.onclick = async () => {
-        const updated = allVarietals.filter(x=>x!==v);
-        await saveVarietals(updated.length ? updated : []);
-      };
+      rm.onclick = () => showVarietalDeleteConfirm(v);
       pill.appendChild(rm); pillsWrap.appendChild(pill);
     });
   }
@@ -3527,7 +3553,6 @@ function _showLocationModal(existingLoc) {
   sheet.appendChild(html(`<div class="modal-handle"></div>`));
 
   const isEdit = !!existingLoc;
-  const isCustom = !existingLoc || existingLoc.isCustom;
   sheet.appendChild(html(`<div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:800;color:var(--ink);margin-bottom:6px">${isEdit?"Edit Location":"New Location"}</div>`));
 
   const form = document.createElement("div"); form.style.cssText="display:flex;flex-direction:column;gap:13px";
@@ -3554,33 +3579,34 @@ function _showLocationModal(existingLoc) {
   colorInp.style.cssText="width:60px;height:40px;border-radius:8px;border:1px solid var(--border);padding:2px;cursor:pointer";
   colorWrap.appendChild(colorInp); form.appendChild(colorWrap);
 
-  let rowsInp, colsInp, previewDiv;
-  if (isCustom) {
-    // Rows
-    const rowsWrap = document.createElement("div"); rowsWrap.style.display="flex"; rowsWrap.style.gap="10px";
-    const r = document.createElement("div"); r.style.flex="1";
-    r.appendChild(html(`<div class="field-label">Rows</div>`));
-    rowsInp = document.createElement("input"); rowsInp.placeholder="4"; rowsInp.inputMode="numeric";
-    rowsInp.value = existingLoc ? (existingLoc.rows||2) : 4;
-    r.appendChild(rowsInp); rowsWrap.appendChild(r);
-    // Cols
-    const c2 = document.createElement("div"); c2.style.flex="1";
-    c2.appendChild(html(`<div class="field-label">Columns</div>`));
-    colsInp = document.createElement("input"); colsInp.placeholder="6"; colsInp.inputMode="numeric";
-    colsInp.value = existingLoc ? (existingLoc.cols||6) : 6;
-    c2.appendChild(colsInp); rowsWrap.appendChild(c2);
-    form.appendChild(rowsWrap);
-    // Preview
-    previewDiv = document.createElement("div");
-    previewDiv.style.cssText = "color:var(--brown-mid);font-size:12px";
-    const updatePreview = () => {
-      const r2=parseInt(rowsInp.value)||0, c3=parseInt(colsInp.value)||0;
-      previewDiv.textContent = r2&&c3 ? `${r2} × ${c3} = ${r2*c3} slots` : "";
-    };
-    rowsInp.oninput=updatePreview; colsInp.oninput=updatePreview;
-    updatePreview();
-    form.appendChild(previewDiv);
-  }
+  // Rows × Cols (always shown — detects existing grid size for built-ins)
+  const _detectGrid = loc => {
+    if (loc?.rows && loc?.cols) return { rows: loc.rows, cols: loc.cols };
+    let maxRow=1, maxCol=1;
+    for (const s of (loc?.slots||[])) { const m=s.match(/^R(\d+)-(\d+)$/); if(m){maxRow=Math.max(maxRow,+m[1]);maxCol=Math.max(maxCol,+m[2]);} }
+    return { rows:maxRow, cols:maxCol };
+  };
+  const detected = _detectGrid(existingLoc);
+  const rowsWrap = document.createElement("div"); rowsWrap.style.cssText="display:flex;gap:10px";
+  const rDiv = document.createElement("div"); rDiv.style.flex="1";
+  rDiv.appendChild(html(`<div class="field-label">Rows</div>`));
+  const rowsInp = document.createElement("input"); rowsInp.placeholder="4"; rowsInp.inputMode="numeric";
+  rowsInp.value = existingLoc ? detected.rows : 4;
+  rDiv.appendChild(rowsInp); rowsWrap.appendChild(rDiv);
+  const cDiv = document.createElement("div"); cDiv.style.flex="1";
+  cDiv.appendChild(html(`<div class="field-label">Columns</div>`));
+  const colsInp = document.createElement("input"); colsInp.placeholder="6"; colsInp.inputMode="numeric";
+  colsInp.value = existingLoc ? detected.cols : 6;
+  cDiv.appendChild(colsInp); rowsWrap.appendChild(cDiv);
+  form.appendChild(rowsWrap);
+  const previewDiv = document.createElement("div"); previewDiv.style.cssText="color:var(--brown-mid);font-size:12px";
+  const updatePreview = () => {
+    const r2=parseInt(rowsInp.value)||0, c3=parseInt(colsInp.value)||0;
+    previewDiv.textContent = r2&&c3 ? `${r2} × ${c3} = ${r2*c3} slots` : "";
+  };
+  rowsInp.oninput=updatePreview; colsInp.oninput=updatePreview;
+  updatePreview();
+  form.appendChild(previewDiv);
 
   sheet.appendChild(form);
   const actions = html(`<div style="display:flex;gap:10px;margin-top:20px"></div>`);
@@ -3589,25 +3615,20 @@ function _showLocationModal(existingLoc) {
   save.onclick = async () => {
     const name2 = nameInp.value.trim();
     if (!name2) { alert("Name is required."); return; }
+    const rows2 = Math.max(1, parseInt(rowsInp.value)||4);
+    const cols2 = Math.max(1, parseInt(colsInp.value)||6);
     save.disabled=true; save.textContent="Saving…";
-    if (isCustom) {
-      const rows2 = parseInt(rowsInp?.value)||4;
-      const cols2 = parseInt(colsInp?.value)||6;
-      const locId = existingLoc ? existingLoc.id : `loc_${Date.now()}`;
-      const order2 = existingLoc ? (existingLoc.order||99) : Object.keys(allLocations).length;
-      const locObj = {
-        id:locId, name:name2, icon:iconInp.value.trim()||"📦",
-        color:colorInp.value, rows:rows2, cols:cols2,
-        slots:generateCustomSlots(rows2,cols2),
-        grid:{sections:Array.from({length:rows2},(_,i)=>`R${i+1}`),cols:cols2,sectionCols:null},
-        order:order2, isBuiltin:false, isCustom:true,
-        createdAt:existingLoc?existingLoc.createdAt:Date.now()
-      };
-      await saveLocation(locObj);
-    } else {
-      // Built-in: save only metadata override
-      await saveLocation({...existingLoc, name:name2, icon:iconInp.value.trim()||existingLoc.icon, color:colorInp.value});
-    }
+    const locId = existingLoc ? existingLoc.id : `loc_${Date.now()}`;
+    const order2 = existingLoc ? (existingLoc.order??99) : Object.keys(allLocations).length;
+    const locObj = {
+      id:locId, name:name2, icon:iconInp.value.trim()||"📦",
+      color:colorInp.value, rows:rows2, cols:cols2,
+      slots:generateCustomSlots(rows2,cols2),
+      grid:{sections:Array.from({length:rows2},(_,i)=>`R${i+1}`),cols:cols2,sectionCols:null},
+      order:order2, isBuiltin:!!(existingLoc?.isBuiltin), isCustom:!(existingLoc?.isBuiltin),
+      createdAt:existingLoc?.createdAt??Date.now()
+    };
+    await saveLocation(locObj);
     close();
   };
   actions.appendChild(cancel); actions.appendChild(save);
