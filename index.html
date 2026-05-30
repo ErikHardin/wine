@@ -343,6 +343,113 @@
 
   /* iOS safe area */
   .modal-sheet { padding-bottom: max(44px, env(safe-area-inset-bottom)); }
+
+  /* ── Settings overlay ── */
+  .settings-overlay {
+    position: fixed; inset: 0; z-index: 1000;
+    background: var(--bg, #f0e6d3); display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  [data-theme="dark"] .settings-overlay { background: #1a1008; }
+  .settings-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 16px 12px; border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .settings-header-title {
+    font-family: 'Cormorant Garamond', serif; font-size: 22px;
+    font-weight: 800; color: var(--ink);
+  }
+  .settings-close-btn {
+    background: none; border: 1px solid var(--border); border-radius: 20px;
+    padding: 4px 10px; cursor: pointer; font-size: 16px; line-height: 1;
+    color: var(--brown-mid);
+  }
+  .settings-body { flex: 1; overflow-y: auto; padding: 16px; }
+  .settings-section { margin-bottom: 28px; }
+  .settings-section-title {
+    font-family: 'Cormorant Garamond', serif; font-size: 16px;
+    font-weight: 700; color: var(--gold); letter-spacing: 0.5px;
+    margin-bottom: 10px; padding-bottom: 6px;
+    border-bottom: 1px solid rgba(184,134,11,0.2);
+  }
+  /* Location row */
+  .loc-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 0; border-bottom: 1px solid var(--border-2);
+  }
+  .loc-row:last-child { border-bottom: none; }
+  .loc-row-icon { font-size: 20px; flex-shrink: 0; }
+  .loc-row-info { flex: 1; min-width: 0; }
+  .loc-row-name {
+    font-family: 'Cormorant Garamond', serif; font-size: 15px;
+    font-weight: 700; color: var(--ink);
+  }
+  .loc-row-count { font-size: 11px; color: var(--brown-pale); margin-top: 1px; }
+  .loc-row-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  /* Varietal pill */
+  .varietal-pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 8px 3px 10px; border-radius: 20px;
+    background: rgba(184,134,11,0.1); border: 1px solid rgba(184,134,11,0.25);
+    color: var(--ink); font-size: 12px; margin: 3px;
+  }
+  .varietal-pill-remove {
+    background: none; border: none; color: var(--brown-pale);
+    font-size: 15px; line-height: 1; padding: 0 2px; cursor: pointer;
+  }
+  /* Bulk progress */
+  .bulk-progress-bar-wrap {
+    background: var(--surface-2); border-radius: 6px;
+    height: 8px; overflow: hidden; margin: 8px 0;
+  }
+  .bulk-progress-fill {
+    height: 100%; background: var(--gold);
+    border-radius: 6px; transition: width 0.3s;
+  }
+  /* Small action buttons */
+  .btn-sm {
+    padding: 6px 12px; border-radius: var(--radius-sm);
+    font-size: 12px; font-family: 'Cormorant Garamond', serif;
+    font-weight: 700; cursor: pointer; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--brown-mid);
+    white-space: nowrap; transition: opacity 0.15s;
+  }
+  .btn-sm:active { opacity: 0.7; }
+  .btn-sm.danger {
+    color: var(--red-wine); border-color: rgba(139,38,53,0.3);
+    background: rgba(139,38,53,0.06);
+  }
+  .btn-sm.primary {
+    color: var(--gold); border-color: rgba(184,134,11,0.3);
+    background: rgba(184,134,11,0.08);
+  }
+  /* Wine mgmt row */
+  .wine-mgmt-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 0; border-bottom: 1px solid var(--border-2);
+  }
+  .wine-mgmt-row:last-child { border-bottom: none; }
+  .wine-mgmt-info { flex: 1; min-width: 0; }
+  .wine-mgmt-name {
+    font-family: 'Cormorant Garamond', serif; font-size: 14px;
+    font-weight: 700; color: var(--ink);
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  }
+  .wine-mgmt-sub { font-size: 11px; color: var(--brown-pale); margin-top: 1px; }
+  /* Consumed return row */
+  .consumed-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 0; border-bottom: 1px solid var(--border-2);
+  }
+  .consumed-row:last-child { border-bottom: none; }
+  .consumed-row-info { flex: 1; min-width: 0; }
+  .consumed-row-name {
+    font-family: 'Cormorant Garamond', serif; font-size: 14px;
+    font-weight: 700; color: var(--ink);
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  }
+  .consumed-row-sub { font-size: 11px; color: var(--brown-pale); margin-top: 1px; }
 </style>
 </head>
 <body>
@@ -388,7 +495,10 @@
         <h1>Cellar <span>Manager</span></h1>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
-        <button id="theme-toggle" onclick="toggleTheme()" style="background:none;border:1px solid var(--border);border-radius:20px;padding:3px 10px;cursor:pointer;font-size:14px;line-height:1;color:var(--brown-mid);transition:border-color 0.2s"><span id="theme-icon">🌙</span></button>
+        <div style="display:flex;gap:6px">
+          <button onclick="showSettings()" style="background:none;border:1px solid var(--border);border-radius:20px;padding:3px 10px;cursor:pointer;font-size:14px;line-height:1;color:var(--brown-mid);transition:border-color 0.2s">⚙️</button>
+          <button id="theme-toggle" onclick="toggleTheme()" style="background:none;border:1px solid var(--border);border-radius:20px;padding:3px 10px;cursor:pointer;font-size:14px;line-height:1;color:var(--brown-mid);transition:border-color 0.2s"><span id="theme-icon">🌙</span></button>
+        </div>
         <div style="display:flex;gap:8px" id="header-badges"></div>
       </div>
     </div>
@@ -450,6 +560,15 @@ function setActiveTrip(id) {
   try { id ? localStorage.setItem("wine_active_trip", id) : localStorage.removeItem("wine_active_trip"); } catch(_) {}
 }
 
+// Settings state — populated from Firebase, replaces hardcoded constants at runtime
+let allLocations = {};   // from /config/locations
+let allVarietals = [];   // from /config/varietals
+
+// Bulk refresh state
+let bulkRefreshRunning  = false;
+let bulkRefreshCancel   = false;
+let bulkRefreshProgress = { done:0, total:0, errors:0, phase:"", currentName:"" };
+
 // ── Locations ────────────────────────────────────────────────────
 const LOCATIONS = (() => {
   const fridgeSlots = [];
@@ -480,6 +599,12 @@ const LOCATIONS = (() => {
                  ],cols:8}},
   };
 })();
+
+function generateCustomSlots(rows, cols) {
+  const s = [];
+  for (let r=1;r<=rows;r++) for (let c=1;c<=cols;c++) s.push(`R${r}-${c}`);
+  return s;
+}
 
 const COLOR_OPTIONS   = ["Red","White","Rosé","Sparkling"];
 const VARIETAL_OPTIONS= [
@@ -665,7 +790,7 @@ function matchesFood(wine, foodId) {
 }
 
 function findPlacement(wineId) {
-  for (const locId of Object.keys(LOCATIONS))
+  for (const locId of Object.keys(allLocations))
     for (const [slot,wid] of Object.entries(slots[locId]||{}))
       if (wid===wineId) return {locId,slot};
   return null;
@@ -673,7 +798,7 @@ function findPlacement(wineId) {
 
 function storedWineIds() {
   const ids=new Set();
-  for (const locId of Object.keys(LOCATIONS))
+  for (const locId of Object.keys(allLocations))
     for (const [,wid] of Object.entries(slots[locId]||{}))
       if (wid) ids.add(wid);
   return ids;
@@ -694,7 +819,48 @@ function ce(tag,props={},children=[]){
 function html(h){ const d=document.createElement("div"); d.innerHTML=h; return d.firstElementChild; }
 
 // ── Firebase listeners ───────────────────────────────────────────
-function initFirebase() {
+async function seedConfigIfEmpty() {
+  const [locsSnap, varsSnap] = await Promise.all([
+    get(ref(db, "config/locations")),
+    get(ref(db, "config/varietals")),
+  ]);
+  const updates = {};
+  if (!locsSnap.exists()) {
+    let order = 0;
+    for (const loc of Object.values(LOCATIONS)) {
+      updates[`config/locations/${loc.id}`] = { ...loc, order: order++, isBuiltin: true, createdAt: Date.now() };
+    }
+  }
+  if (!varsSnap.exists()) {
+    VARIETAL_OPTIONS.forEach((v,i) => { updates[`config/varietals/${i}`] = v; });
+  }
+  if (Object.keys(updates).length) await update(ref(db), updates);
+}
+
+async function initFirebase() {
+  await seedConfigIfEmpty();
+  onValue(ref(db,"config/locations"), snap => {
+    const raw = snap.val() || {};
+    allLocations = Object.fromEntries(
+      Object.values(raw).sort((a,b)=>(a.order||0)-(b.order||0)).map(l=>{
+        if (l.isCustom && l.rows && l.cols) {
+          const slots = generateCustomSlots(l.rows, l.cols);
+          const sections = Array.from({length:l.rows},(_,i)=>`R${i+1}`);
+          return [l.id, {...l, slots, grid:{sections, cols:l.cols, sectionCols:null}}];
+        }
+        return [l.id, l];
+      })
+    );
+    render();
+  });
+  onValue(ref(db,"config/varietals"), snap => {
+    const raw = snap.val();
+    allVarietals = raw ? Object.values(raw).filter(Boolean).sort() : [];
+    // Refresh any open varietal datalist
+    const dl = document.getElementById("varietal-suggestions");
+    if (dl) { dl.innerHTML=""; allVarietals.forEach(v=>{ const o=document.createElement("option"); o.value=v; dl.appendChild(o); }); }
+    render();
+  });
   onValue(ref(db,"wines"),   snap=>{ wines   =snap.val()||{}; render(); });
   onValue(ref(db,"slots"),   snap=>{ slots   =snap.val()||{}; render(); });
   onValue(ref(db,"consumed"),snap=>{ consumed=snap.val()||{}; render(); });
@@ -721,6 +887,30 @@ async function saveConsumed(entry) {
 }
 async function saveTrip(trip) {
   await set(ref(db,`trips/${trip.id}`), trip);
+}
+async function saveLocation(loc) {
+  await set(ref(db, `config/locations/${loc.id}`), loc);
+}
+async function deleteLocation(locId) {
+  await remove(ref(db, `config/locations/${locId}`));
+}
+async function saveVarietals(arr) {
+  const obj = {};
+  arr.forEach((v,i) => { obj[i] = v; });
+  await set(ref(db, "config/varietals"), obj);
+}
+
+async function returnToCellar(consumedEntry) {
+  await remove(ref(db, `consumed/${consumedEntry.id}`));
+  const wine = wines[consumedEntry.id];
+  if (wine) {
+    showAssignModal(wine);
+  } else {
+    const restored = { ...consumedEntry };
+    delete restored.locId; delete restored.slot; delete restored.consumedAt;
+    await saveWine(restored);
+    showAssignModal(restored);
+  }
 }
 
 // ── Worker calls ─────────────────────────────────────────────────
@@ -798,7 +988,7 @@ function closetSlotKey(n) {
 function findImportSlot(locId, slotHint, pending) {
   const locSlots=slots[locId]||{};
   const taken=s=>locSlots[s]||(pending[locId]||{})[s];
-  const allSlots=LOCATIONS[locId].slots;
+  const allSlots=(allLocations[locId]||LOCATIONS[locId]||{}).slots||[];
   if(locId==="winefridge"){
     for(const s of allSlots) if(s[0]===slotHint&&!taken(s)) return s;
     for(const s of allSlots) if(!taken(s)) return s; // section full, try anywhere
@@ -1366,10 +1556,17 @@ let cellarActiveLoc = "winefridge";
 
 function renderCellarTab() {
   const frag = document.createDocumentFragment();
+  if (Object.keys(allLocations).length === 0) {
+    frag.appendChild(html(`<div class="empty-state"><div class="icon">⏳</div><div class="title">Loading…</div></div>`));
+    return frag;
+  }
+
+  // Guard active location
+  if (!allLocations[cellarActiveLoc]) cellarActiveLoc = Object.keys(allLocations)[0];
 
   // Overall capacity summary
-  const totalOcc = Object.values(LOCATIONS).reduce((s,loc)=>s+Object.values(slots[loc.id]||{}).filter(Boolean).length,0);
-  const totalCap = Object.values(LOCATIONS).reduce((s,loc)=>s+loc.slots.length,0);
+  const totalOcc = Object.values(allLocations).reduce((s,loc)=>s+Object.values(slots[loc.id]||{}).filter(Boolean).length,0);
+  const totalCap = Object.values(allLocations).reduce((s,loc)=>s+(loc.slots||[]).length,0);
   const totalPct = totalCap>0?Math.round(totalOcc/totalCap*100):0;
   frag.appendChild(html(`<div style="margin-bottom:16px">
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
@@ -1381,23 +1578,23 @@ function renderCellarTab() {
 
   // Location picker
   const locPicker = document.createElement("div");
-  locPicker.style.cssText = "display:flex;gap:8px;margin-bottom:16px";
-  Object.values(LOCATIONS).forEach(loc=>{
+  locPicker.style.cssText = "display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap";
+  Object.values(allLocations).forEach(loc=>{
     const occ = Object.values(slots[loc.id]||{}).filter(Boolean).length;
     const active = cellarActiveLoc===loc.id;
-    const btn = html(`<button style="flex:1;padding:10px 3px;border-radius:10px;border:1px solid ${active?loc.color:"var(--border)"};background:${active?loc.color+"18":"var(--surface-3)"};color:${active?loc.color:"var(--brown-pale)"};font-size:10px;font-family:'Cormorant Garamond',serif;font-weight:700;line-height:1.6;cursor:pointer;transition:all 0.2s">
-      ${loc.icon}<br>${loc.name}<br><span style="font-size:9px;opacity:0.7">${occ}/${loc.slots.length}</span>
+    const btn = html(`<button style="flex:1;min-width:60px;padding:10px 3px;border-radius:10px;border:1px solid ${active?loc.color:"var(--border)"};background:${active?loc.color+"18":"var(--surface-3)"};color:${active?loc.color:"var(--brown-pale)"};font-size:10px;font-family:'Cormorant Garamond',serif;font-weight:700;line-height:1.6;cursor:pointer;transition:all 0.2s">
+      ${loc.icon}<br>${loc.name}<br><span style="font-size:9px;opacity:0.7">${occ}/${(loc.slots||[]).length}</span>
     </button>`);
     btn.onclick=()=>{ cellarActiveLoc=loc.id; renderTab(); };
     locPicker.appendChild(btn);
   });
   frag.appendChild(locPicker);
 
-  const loc = LOCATIONS[cellarActiveLoc];
+  const loc = allLocations[cellarActiveLoc];
   const locSlots = slots[cellarActiveLoc]||{};
   const occ = Object.values(locSlots).filter(Boolean).length;
-  const total = loc.slots.length;
-  const pct = Math.round(occ/total*100);
+  const total = (loc.slots||[]).length;
+  const pct = total>0?Math.round(occ/total*100):0;
 
   // Capacity bar
   frag.appendChild(html(`<div style="margin-bottom:18px">
@@ -1408,16 +1605,17 @@ function renderCellarTab() {
     <div class="drink-bar"><div class="drink-bar-fill" style="width:${pct}%;background:${loc.color}"></div></div>
   </div>`));
 
-  // Slot grid
-  const isCloset = cellarActiveLoc==="closet";
+  // Slot grid — detect closet-style (object array) vs flat sections (string array)
+  const isCloset = loc.grid.sections.length > 0 && typeof loc.grid.sections[0] === 'object';
   const sections = isCloset ? loc.grid.sections : loc.grid.sections.map(s=>({id:s,rows:1,label:s}));
 
   sections.forEach(secDef=>{
-    const secId = isCloset ? secDef.id : secDef.id;
-    const label = cellarActiveLoc==="fridge" ? `Row ${secId.replace("R","")}` :
-                  cellarActiveLoc==="winefridge" ? `Section ${secId}` : secDef.label;
+    const secId = secDef.id;
+    const label = isCloset ? secDef.label :
+                  /^R\d+$/.test(secId) ? `Row ${secId.replace("R","")}` :
+                  `Section ${secId}`;
     const colCount = loc.grid.sectionCols ? loc.grid.sectionCols[secId] : loc.grid.cols;
-    const secSlots = loc.slots.filter(s=>s.startsWith(secId));
+    const secSlots = (loc.slots||[]).filter(s=>s.startsWith(secId));
 
     const secDiv = document.createElement("div");
     secDiv.style.marginBottom="16px";
@@ -1597,7 +1795,7 @@ function renderFilterPanel(storedWines, storedIds) {
   // Varietal
   const varSec=html(`<div><div class="section-label">Varietal</div></div>`);
   const sel=document.createElement("select");
-  sel.innerHTML=`<option value="">Any varietal</option>`+VARIETAL_OPTIONS.map(v=>`<option value="${v}"${findFilters.varietal===v?" selected":""}>${v}</option>`).join("");
+  sel.innerHTML=`<option value="">Any varietal</option>`+(allVarietals.length?allVarietals:VARIETAL_OPTIONS).map(v=>`<option value="${v}"${findFilters.varietal===v?" selected":""}>${v}</option>`).join("");
   sel.onchange=e=>{ findFilters.varietal=e.target.value; renderTab(); };
   varSec.appendChild(sel); panel.appendChild(varSec);
 
@@ -1657,7 +1855,7 @@ function renderFilterPanel(storedWines, storedIds) {
 }
 
 function renderFindCard(wine, placement) {
-  const loc    = placement ? LOCATIONS[placement.locId] : null;
+  const loc    = placement ? allLocations[placement.locId] : null;
   const status = drinkStatus(wine);
   const card   = html(`<div class="card" style="cursor:pointer">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
@@ -1699,7 +1897,7 @@ function renderConsumedTab() {
   }
 
   entries.forEach(c=>{
-    const loc=c.locId?LOCATIONS[c.locId]:null;
+    const loc=c.locId?allLocations[c.locId]:null;
     const d=new Date(c.consumedAt);
     const dateStr=d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});
     frag.appendChild(html(`<div class="card" style="opacity:0.88">
@@ -2181,10 +2379,10 @@ function renderAddWineModal() {
     form.appendChild(row1);
 
     // Varietal text input with datalist suggestions
-    if(!document.getElementById("varietal-suggestions")){
-      const dl=document.createElement("datalist"); dl.id="varietal-suggestions";
-      VARIETAL_OPTIONS.forEach(v=>{ const o=document.createElement("option"); o.value=v; dl.appendChild(o); });
-      document.body.appendChild(dl);
+    { let dl=document.getElementById("varietal-suggestions");
+      if(!dl){ dl=document.createElement("datalist"); dl.id="varietal-suggestions"; document.body.appendChild(dl); }
+      dl.innerHTML="";
+      (allVarietals.length?allVarietals:VARIETAL_OPTIONS).forEach(v=>{ const o=document.createElement("option"); o.value=v; dl.appendChild(o); });
     }
     const varWrap=document.createElement("div");
     varWrap.appendChild(html(`<div class="field-label">Varietal</div>`));
@@ -2342,10 +2540,10 @@ function renderAddWineModal() {
     });
     form.appendChild(row1);
     // Varietal
-    if(!document.getElementById("varietal-suggestions")){
-      const dl=document.createElement("datalist"); dl.id="varietal-suggestions";
-      VARIETAL_OPTIONS.forEach(v=>{ const o=document.createElement("option"); o.value=v; dl.appendChild(o); });
-      document.body.appendChild(dl);
+    { let dl=document.getElementById("varietal-suggestions");
+      if(!dl){ dl=document.createElement("datalist"); dl.id="varietal-suggestions"; document.body.appendChild(dl); }
+      dl.innerHTML="";
+      (allVarietals.length?allVarietals:VARIETAL_OPTIONS).forEach(v=>{ const o=document.createElement("option"); o.value=v; dl.appendChild(o); });
     }
     const varWrap=document.createElement("div");
     varWrap.appendChild(html(`<div class="field-label">Varietal</div>`));
@@ -2468,7 +2666,7 @@ let assignLoc  = "winefridge";
 let assignSlot = null;
 
 function showAssignModal(wine) {
-  assignLoc  = "winefridge";
+  assignLoc  = allLocations["winefridge"] ? "winefridge" : Object.keys(allLocations)[0] || "winefridge";
   assignSlot = null;
   renderAssignModal(wine);
 }
@@ -2483,10 +2681,10 @@ function renderAssignModal(wine) {
   sheet.appendChild(html(`<div style="color:var(--brown-light);font-size:13px;font-style:italic;margin-bottom:18px">${wine.wine} · ${wine.vintage||""}</div>`));
 
   // Location picker
-  const locRow=document.createElement("div"); locRow.style.cssText="display:flex;gap:7px;margin-bottom:18px";
-  Object.values(LOCATIONS).forEach(loc=>{
+  const locRow=document.createElement("div"); locRow.style.cssText="display:flex;gap:7px;margin-bottom:18px;flex-wrap:wrap";
+  Object.values(allLocations).forEach(loc=>{
     const active=assignLoc===loc.id;
-    const btn=html(`<button style="flex:1;padding:9px 3px;border-radius:9px;border:1px solid ${active?loc.color:"var(--border)"};background:${active?loc.color+"18":"transparent"};color:${active?loc.color:"var(--brown-pale)"};font-size:10px;cursor:pointer;font-family:'Cormorant Garamond',serif;font-weight:700">${loc.icon}<br>${loc.name}</button>`);
+    const btn=html(`<button style="flex:1;min-width:50px;padding:9px 3px;border-radius:9px;border:1px solid ${active?loc.color:"var(--border)"};background:${active?loc.color+"18":"transparent"};color:${active?loc.color:"var(--brown-pale)"};font-size:10px;cursor:pointer;font-family:'Cormorant Garamond',serif;font-weight:700">${loc.icon}<br>${loc.name}</button>`);
     btn.onclick=()=>{ assignLoc=loc.id; assignSlot=null; renderAssignModal(wine); };
     locRow.appendChild(btn);
   });
@@ -2494,17 +2692,18 @@ function renderAssignModal(wine) {
 
   sheet.appendChild(html(`<div class="section-label">Select slot · <span style="color:var(--brown-pale)">🍷 = occupied</span></div>`));
 
-  const loc     = LOCATIONS[assignLoc];
+  const loc     = allLocations[assignLoc];
   const locSlots= slots[assignLoc]||{};
-  const isCloset= assignLoc==="closet";
+  const isCloset= loc.grid.sections.length>0 && typeof loc.grid.sections[0]==='object';
   const sections= isCloset ? loc.grid.sections : loc.grid.sections.map(s=>({id:s,rows:1}));
 
   sections.forEach(secDef=>{
-    const secId   = isCloset ? secDef.id : secDef.id;
+    const secId   = secDef.id;
     const colCount= loc.grid.sectionCols ? loc.grid.sectionCols[secId] : loc.grid.cols;
-    const label   = assignLoc==="fridge" ? `Row ${secId.replace("R","")}` :
-                    assignLoc==="winefridge" ? `Section ${secId}` : secDef.label;
-    const secSlots= loc.slots.filter(s=>s.startsWith(secId));
+    const label   = isCloset ? secDef.label :
+                    /^R\d+$/.test(secId) ? `Row ${secId.replace("R","")}` :
+                    `Section ${secId}`;
+    const secSlots= (loc.slots||[]).filter(s=>s.startsWith(secId));
 
     const secDiv=document.createElement("div"); secDiv.style.marginBottom="12px";
     secDiv.appendChild(html(`<div style="color:var(--brown-pale);font-size:10px;letter-spacing:1px;margin-bottom:5px">${label}</div>`));
@@ -2546,16 +2745,16 @@ function renderAssignModal(wine) {
   if(assignSlot){
     sheet.appendChild(html(`<div style="background:rgba(184,134,11,0.1);border:1px solid rgba(184,134,11,0.25);border-radius:10px;padding:11px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center">
       <span style="color:var(--brown-mid);font-size:13px">Selected</span>
-      <span style="color:${LOCATIONS[assignLoc].color};font-weight:800;font-family:monospace;font-size:16px">${LOCATIONS[assignLoc].name} · ${assignSlot}</span>
+      <span style="color:${allLocations[assignLoc].color};font-weight:800;font-family:monospace;font-size:16px">${allLocations[assignLoc].name} · ${assignSlot}</span>
     </div>`));
   }
 
-  const saveBtnLabel = assignSlot ? `Save to ${LOCATIONS[assignLoc].name} · ${assignSlot}` : "Select a slot above";
+  const saveBtnLabel = assignSlot ? `Save to ${allLocations[assignLoc].name} · ${assignSlot}` : "Select a slot above";
   const saveBtn=html(`<button class="${assignSlot?"btn-primary":"btn-ghost"}" style="${assignSlot?"":"cursor:not-allowed;opacity:0.5"}">${saveBtnLabel}</button>`);
   saveBtn.onclick=async()=>{
     if(!assignSlot) return;
     // Clear any old slot for this wine
-    for(const lid of Object.keys(LOCATIONS))
+    for(const lid of Object.keys(allLocations))
       for(const [sl,wid] of Object.entries(slots[lid]||{}))
         if(wid===wine.id) await clearSlot(lid,sl);
     await saveSlot(assignLoc,assignSlot,wine.id);
@@ -2602,7 +2801,7 @@ function showWineProfile(wine) {
   overlay.onclick=e=>{ if(e.target===overlay) root.innerHTML=""; };
 
   const placement=findPlacement(wine.id);
-  const loc      =placement?LOCATIONS[placement.locId]:null;
+  const loc      =placement?allLocations[placement.locId]:null;
   const status   =drinkStatus(wine);
 
   sheet.appendChild(html(`<div class="modal-handle"></div>`));
@@ -2892,10 +3091,10 @@ function renderEditWineModal(wine) {
   form.appendChild(row1);
 
   // Varietal
-  if(!document.getElementById("varietal-suggestions")){
-    const dl=document.createElement("datalist"); dl.id="varietal-suggestions";
-    VARIETAL_OPTIONS.forEach(v=>{ const o=document.createElement("option"); o.value=v; dl.appendChild(o); });
-    document.body.appendChild(dl);
+  { let dl=document.getElementById("varietal-suggestions");
+    if(!dl){ dl=document.createElement("datalist"); dl.id="varietal-suggestions"; document.body.appendChild(dl); }
+    dl.innerHTML="";
+    (allVarietals.length?allVarietals:VARIETAL_OPTIONS).forEach(v=>{ const o=document.createElement("option"); o.value=v; dl.appendChild(o); });
   }
   const varWrap=document.createElement("div");
   varWrap.appendChild(html(`<div class="field-label">Varietal</div>`));
@@ -3003,7 +3202,7 @@ function renderEditWineModal(wine) {
 
 function showSlotDetail(locId,slot,wine){
   const root=el("modal-root"); root.innerHTML="";
-  const loc=LOCATIONS[locId];
+  const loc=allLocations[locId]||LOCATIONS[locId];
   const overlay=document.createElement("div"); overlay.className="modal-overlay";
   const sheet=document.createElement("div"); sheet.className="modal-sheet";
   overlay.onclick=e=>{ if(e.target===overlay) root.innerHTML=""; };
@@ -3050,6 +3249,396 @@ function showSlotDetail(locId,slot,wine){
   root.appendChild(overlay);
 }
 
+// ── SETTINGS OVERLAY ─────────────────────────────────────────────
+function showSettings() {
+  if (document.getElementById("settings-overlay")) return;
+  const overlay = document.createElement("div");
+  overlay.id = "settings-overlay";
+  overlay.className = "settings-overlay";
+  overlay.innerHTML = `
+    <div class="settings-header">
+      <div class="settings-header-title">Settings</div>
+      <button class="settings-close-btn" onclick="closeSettings()">✕</button>
+    </div>
+    <div class="settings-body" id="settings-body"></div>
+  `;
+  document.body.appendChild(overlay);
+  renderSettingsBody();
+}
+
+function closeSettings() {
+  const el2 = document.getElementById("settings-overlay");
+  if (el2) el2.remove();
+}
+
+function renderSettingsBody() {
+  const body = document.getElementById("settings-body");
+  if (!body) return;
+  body.innerHTML = "";
+  body.appendChild(renderSettingsSectionLocations());
+  body.appendChild(renderSettingsSectionVarietals());
+  body.appendChild(renderSettingsSectionBulkRefresh());
+  body.appendChild(renderSettingsSectionWineManagement());
+  body.appendChild(renderSettingsSectionReturnConsumed());
+}
+
+function renderSettingsSectionLocations() {
+  const sec = document.createElement("div");
+  sec.className = "settings-section";
+  sec.appendChild(html(`<div class="settings-section-title">Cellar Locations</div>`));
+
+  const locs = Object.values(allLocations);
+  if (locs.length === 0) {
+    sec.appendChild(html(`<div style="color:var(--brown-pale);font-size:13px">Loading locations…</div>`));
+  } else {
+    const list = document.createElement("div");
+    locs.forEach(loc => {
+      const occ = Object.values(slots[loc.id]||{}).filter(Boolean).length;
+      const row = document.createElement("div");
+      row.className = "loc-row";
+      const icon = document.createElement("div"); icon.className="loc-row-icon"; icon.textContent=loc.icon||"📦";
+      const info = document.createElement("div"); info.className="loc-row-info";
+      const name = document.createElement("div"); name.className="loc-row-name"; name.textContent=loc.name;
+      const count = document.createElement("div"); count.className="loc-row-count";
+      count.textContent=`${occ} of ${(loc.slots||[]).length} slots used`;
+      info.appendChild(name); info.appendChild(count);
+      const acts = document.createElement("div"); acts.className="loc-row-actions";
+      const editBtn = document.createElement("button"); editBtn.className="btn-sm"; editBtn.textContent="Edit";
+      editBtn.onclick=()=>showEditLocationModal(loc);
+      acts.appendChild(editBtn);
+      if (loc.isCustom) {
+        const delBtn = document.createElement("button"); delBtn.className="btn-sm danger"; delBtn.textContent="Delete";
+        delBtn.onclick=()=>showDeleteLocationConfirm(loc.id);
+        acts.appendChild(delBtn);
+      }
+      row.appendChild(icon); row.appendChild(info); row.appendChild(acts);
+      list.appendChild(row);
+    });
+    sec.appendChild(list);
+  }
+
+  const addBtn = html(`<button class="btn-sm primary" style="margin-top:12px;width:100%">+ Add Location</button>`);
+  addBtn.onclick=()=>showAddLocationModal();
+  sec.appendChild(addBtn);
+  return sec;
+}
+
+function renderSettingsSectionVarietals() {
+  const sec = document.createElement("div");
+  sec.className = "settings-section";
+  sec.appendChild(html(`<div class="settings-section-title">Varietals</div>`));
+
+  // Add input row
+  const addRow = document.createElement("div");
+  addRow.style.cssText = "display:flex;gap:8px;margin-bottom:12px";
+  const inp = document.createElement("input");
+  inp.placeholder = "e.g. Pét-Nat"; inp.style.flex="1";
+  const addBtn = document.createElement("button"); addBtn.className="btn-sm primary"; addBtn.textContent="Add";
+  addBtn.onclick = async () => {
+    const v = inp.value.trim();
+    if (!v || allVarietals.includes(v)) { inp.value=""; return; }
+    inp.disabled=true; addBtn.disabled=true;
+    await saveVarietals([...allVarietals, v]);
+    inp.value=""; inp.disabled=false; addBtn.disabled=false;
+  };
+  addRow.appendChild(inp); addRow.appendChild(addBtn);
+  sec.appendChild(addRow);
+
+  // Pill list
+  const pillsWrap = document.createElement("div");
+  pillsWrap.style.cssText = "display:flex;flex-wrap:wrap;gap:0";
+  (allVarietals.length?allVarietals:VARIETAL_OPTIONS).forEach(v => {
+    const pill = document.createElement("span");
+    pill.className = "varietal-pill";
+    pill.textContent = v;
+    const rm = document.createElement("button");
+    rm.className = "varietal-pill-remove"; rm.textContent = "×"; rm.title = "Remove";
+    rm.onclick = async () => {
+      const updated = allVarietals.filter(x=>x!==v);
+      await saveVarietals(updated.length ? updated : []);
+    };
+    pill.appendChild(rm); pillsWrap.appendChild(pill);
+  });
+  sec.appendChild(pillsWrap);
+  return sec;
+}
+
+function renderSettingsSectionBulkRefresh() {
+  const sec = document.createElement("div");
+  sec.className = "settings-section";
+  sec.appendChild(html(`<div class="settings-section-title">Bulk AI Refresh</div>`));
+
+  if (bulkRefreshRunning) {
+    const { done, total, errors, phase, currentName } = bulkRefreshProgress;
+    const pct = total>0?Math.round(done/total*100):0;
+    const wrap = html(`<div style="background:rgba(184,134,11,0.06);border:1px solid rgba(184,134,11,0.2);border-radius:12px;padding:14px;margin-bottom:10px">
+      <div id="bulk-progress-text" style="color:var(--gold);font-size:13px;font-weight:700;margin-bottom:4px">${phase==="pairings"?"Pairings":"Critic Notes"}: ${done}/${total}${errors?` · ${errors} errors`:""}</div>
+      <div class="bulk-progress-bar-wrap"><div id="bulk-progress-fill" class="bulk-progress-fill" style="width:${pct}%"></div></div>
+      <div id="bulk-progress-name" style="color:var(--brown-pale);font-size:11px;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${currentName}</div>
+    </div>`);
+    sec.appendChild(wrap);
+    const stopBtn = html(`<button class="btn-sm danger" style="width:100%">⏹ Stop</button>`);
+    stopBtn.onclick=()=>{ bulkRefreshCancel=true; };
+    sec.appendChild(stopBtn);
+  } else {
+    const storedIds = storedWineIds();
+    const wineList = Object.values(wines).filter(w=>storedIds.has(w.id));
+    const noPairings = wineList.filter(w=>!w.pairings?.length).length;
+    const noCritics  = wineList.filter(w=>!w.criticNotes?.length).length;
+    sec.appendChild(html(`<div style="color:var(--brown-mid);font-size:13px;margin-bottom:12px">${wineList.length} wines in cellar · ${noPairings} without pairings · ${noCritics} without critic notes</div>`));
+    const btnRow = document.createElement("div"); btnRow.style.cssText="display:flex;gap:8px;flex-wrap:wrap";
+    const p1=html(`<button class="btn-sm" style="flex:1">Refresh Pairings</button>`); p1.onclick=()=>startBulkRefresh("pairings");
+    const p2=html(`<button class="btn-sm" style="flex:1">Refresh Critics</button>`); p2.onclick=()=>startBulkRefresh("critics");
+    const p3=html(`<button class="btn-sm primary" style="flex:2">Refresh Both</button>`); p3.onclick=()=>startBulkRefresh("both");
+    btnRow.appendChild(p1); btnRow.appendChild(p2); btnRow.appendChild(p3);
+    sec.appendChild(btnRow);
+  }
+  return sec;
+}
+
+function renderSettingsSectionWineManagement() {
+  const sec = document.createElement("div");
+  sec.className = "settings-section";
+  sec.appendChild(html(`<div class="settings-section-title">Wine Management</div>`));
+
+  const storedIds = storedWineIds();
+  const wineList = Object.values(wines).filter(w=>storedIds.has(w.id)).sort((a,b)=>(a.wine||"").localeCompare(b.wine||""));
+
+  if (wineList.length === 0) {
+    sec.appendChild(html(`<div style="color:var(--brown-pale);font-size:13px">No wines currently stored.</div>`));
+    return sec;
+  }
+
+  const list = document.createElement("div");
+  wineList.forEach(wine => {
+    const placement = findPlacement(wine.id);
+    const loc = placement ? allLocations[placement.locId] : null;
+    const row = document.createElement("div"); row.className="wine-mgmt-row";
+    const info = document.createElement("div"); info.className="wine-mgmt-info";
+    const name = document.createElement("div"); name.className="wine-mgmt-name";
+    name.textContent = `${wine.wine}${wine.vintage?" "+wine.vintage:""}`;
+    const sub = document.createElement("div"); sub.className="wine-mgmt-sub";
+    sub.textContent = `${wine.winery}${loc?" · "+loc.icon+" "+placement.slot:""}`;
+    info.appendChild(name); info.appendChild(sub);
+    const editBtn = document.createElement("button"); editBtn.className="btn-sm"; editBtn.textContent="Edit";
+    editBtn.onclick=()=>{ closeSettings(); showEditWineModal(wine); };
+    row.appendChild(info); row.appendChild(editBtn);
+    list.appendChild(row);
+  });
+  sec.appendChild(list);
+  return sec;
+}
+
+function renderSettingsSectionReturnConsumed() {
+  const sec = document.createElement("div");
+  sec.className = "settings-section";
+  sec.appendChild(html(`<div class="settings-section-title">Return Consumed to Cellar</div>`));
+
+  const entries = Object.values(consumed).sort((a,b)=>b.consumedAt-a.consumedAt);
+  if (entries.length === 0) {
+    sec.appendChild(html(`<div style="color:var(--brown-pale);font-size:13px">No consumed bottles recorded.</div>`));
+    return sec;
+  }
+
+  const list = document.createElement("div");
+  entries.forEach(entry => {
+    const loc = entry.locId ? allLocations[entry.locId] : null;
+    const d = new Date(entry.consumedAt);
+    const dateStr = d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});
+    const row = document.createElement("div"); row.className="consumed-row";
+    const info = document.createElement("div"); info.className="consumed-row-info";
+    const name = document.createElement("div"); name.className="consumed-row-name";
+    name.textContent = `${entry.wine}${entry.vintage?" "+entry.vintage:""}`;
+    const sub = document.createElement("div"); sub.className="consumed-row-sub";
+    sub.textContent = `${entry.winery} · ${dateStr}${loc?" · was in "+loc.name:""}`;
+    info.appendChild(name); info.appendChild(sub);
+    const retBtn = document.createElement("button"); retBtn.className="btn-sm primary"; retBtn.textContent="Return";
+    retBtn.onclick=async()=>{
+      retBtn.disabled=true; retBtn.textContent="…";
+      closeSettings();
+      await returnToCellar(entry);
+    };
+    row.appendChild(info); row.appendChild(retBtn);
+    list.appendChild(row);
+  });
+  sec.appendChild(list);
+  return sec;
+}
+
+function renderSettingsProgressBar() {
+  const fill = document.getElementById("bulk-progress-fill");
+  const text = document.getElementById("bulk-progress-text");
+  const name = document.getElementById("bulk-progress-name");
+  if (!fill) return;
+  const { done, total, errors, phase, currentName } = bulkRefreshProgress;
+  const pct = total>0?Math.round(done/total*100):0;
+  fill.style.width = pct + "%";
+  if (text) text.textContent = `${phase==="pairings"?"Pairings":"Critic Notes"}: ${done}/${total}${errors?" · "+errors+" errors":""}`;
+  if (name) name.textContent = currentName;
+}
+
+async function startBulkRefresh(mode) {
+  if (bulkRefreshRunning) return;
+  bulkRefreshRunning = true; bulkRefreshCancel = false;
+  renderSettingsBody();
+  const storedIds = storedWineIds();
+  const wineList = Object.values(wines).filter(w=>storedIds.has(w.id));
+  const phases = mode==="both" ? ["pairings","critics"] : [mode];
+  for (const phase of phases) {
+    bulkRefreshProgress = { done:0, total:wineList.length, errors:0, phase, currentName:"" };
+    renderSettingsProgressBar();
+    for (const wine of wineList) {
+      if (bulkRefreshCancel) break;
+      bulkRefreshProgress.currentName = `${wine.winery} – ${wine.wine}`;
+      renderSettingsProgressBar();
+      try {
+        if (phase==="pairings") await fetchPairingsForWine(wine);
+        else await fetchCriticsForWine(wine);
+      } catch(_) { bulkRefreshProgress.errors++; }
+      bulkRefreshProgress.done++;
+      renderSettingsProgressBar();
+    }
+    if (bulkRefreshCancel) break;
+  }
+  bulkRefreshRunning = false; bulkRefreshCancel = false;
+  renderSettingsBody();
+}
+
+function showAddLocationModal() {
+  _showLocationModal(null);
+}
+
+function showEditLocationModal(loc) {
+  _showLocationModal(loc);
+}
+
+function _showLocationModal(existingLoc) {
+  const root = el("modal-root"); root.innerHTML="";
+  const overlay = document.createElement("div"); overlay.className="modal-overlay";
+  const sheet   = document.createElement("div"); sheet.className="modal-sheet";
+  overlay.onclick = e=>{ if(e.target===overlay) root.innerHTML=""; };
+  sheet.appendChild(html(`<div class="modal-handle"></div>`));
+
+  const isEdit = !!existingLoc;
+  const isCustom = !existingLoc || existingLoc.isCustom;
+  sheet.appendChild(html(`<div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:800;color:var(--ink);margin-bottom:6px">${isEdit?"Edit Location":"New Location"}</div>`));
+
+  const form = document.createElement("div"); form.style.cssText="display:flex;flex-direction:column;gap:13px";
+
+  // Name
+  const nameWrap = document.createElement("div");
+  nameWrap.appendChild(html(`<div class="field-label">Name *</div>`));
+  const nameInp = document.createElement("input"); nameInp.placeholder="e.g. Basement Rack";
+  if (existingLoc) nameInp.value = existingLoc.name;
+  nameWrap.appendChild(nameInp); form.appendChild(nameWrap);
+
+  // Icon
+  const iconWrap = document.createElement("div");
+  iconWrap.appendChild(html(`<div class="field-label">Icon (emoji)</div>`));
+  const iconInp = document.createElement("input"); iconInp.placeholder="📦"; iconInp.style.fontSize="20px";
+  if (existingLoc) iconInp.value = existingLoc.icon||"📦";
+  iconWrap.appendChild(iconInp); form.appendChild(iconWrap);
+
+  // Color
+  const colorWrap = document.createElement("div");
+  colorWrap.appendChild(html(`<div class="field-label">Color</div>`));
+  const colorInp = document.createElement("input"); colorInp.type="color";
+  colorInp.value = existingLoc ? existingLoc.color||"#8b6010" : "#8b6010";
+  colorInp.style.cssText="width:60px;height:40px;border-radius:8px;border:1px solid var(--border);padding:2px;cursor:pointer";
+  colorWrap.appendChild(colorInp); form.appendChild(colorWrap);
+
+  let rowsInp, colsInp, previewDiv;
+  if (isCustom) {
+    // Rows
+    const rowsWrap = document.createElement("div"); rowsWrap.style.display="flex"; rowsWrap.style.gap="10px";
+    const r = document.createElement("div"); r.style.flex="1";
+    r.appendChild(html(`<div class="field-label">Rows</div>`));
+    rowsInp = document.createElement("input"); rowsInp.placeholder="4"; rowsInp.inputMode="numeric";
+    rowsInp.value = existingLoc ? (existingLoc.rows||2) : 4;
+    r.appendChild(rowsInp); rowsWrap.appendChild(r);
+    // Cols
+    const c2 = document.createElement("div"); c2.style.flex="1";
+    c2.appendChild(html(`<div class="field-label">Columns</div>`));
+    colsInp = document.createElement("input"); colsInp.placeholder="6"; colsInp.inputMode="numeric";
+    colsInp.value = existingLoc ? (existingLoc.cols||6) : 6;
+    c2.appendChild(colsInp); rowsWrap.appendChild(c2);
+    form.appendChild(rowsWrap);
+    // Preview
+    previewDiv = document.createElement("div");
+    previewDiv.style.cssText = "color:var(--brown-mid);font-size:12px";
+    const updatePreview = () => {
+      const r2=parseInt(rowsInp.value)||0, c3=parseInt(colsInp.value)||0;
+      previewDiv.textContent = r2&&c3 ? `${r2} × ${c3} = ${r2*c3} slots` : "";
+    };
+    rowsInp.oninput=updatePreview; colsInp.oninput=updatePreview;
+    updatePreview();
+    form.appendChild(previewDiv);
+  }
+
+  sheet.appendChild(form);
+  const actions = html(`<div style="display:flex;gap:10px;margin-top:20px"></div>`);
+  const cancel = html(`<button class="btn-ghost" style="flex:1">Cancel</button>`); cancel.onclick=()=>root.innerHTML="";
+  const save = html(`<button class="btn-primary" style="flex:2">${isEdit?"Save Changes":"Add Location"}</button>`);
+  save.onclick = async () => {
+    const name2 = nameInp.value.trim();
+    if (!name2) { alert("Name is required."); return; }
+    save.disabled=true; save.textContent="Saving…";
+    if (isCustom) {
+      const rows2 = parseInt(rowsInp?.value)||4;
+      const cols2 = parseInt(colsInp?.value)||6;
+      const locId = existingLoc ? existingLoc.id : `loc_${Date.now()}`;
+      const order2 = existingLoc ? (existingLoc.order||99) : Object.keys(allLocations).length;
+      const locObj = {
+        id:locId, name:name2, icon:iconInp.value.trim()||"📦",
+        color:colorInp.value, rows:rows2, cols:cols2,
+        slots:generateCustomSlots(rows2,cols2),
+        grid:{sections:Array.from({length:rows2},(_,i)=>`R${i+1}`),cols:cols2,sectionCols:null},
+        order:order2, isBuiltin:false, isCustom:true,
+        createdAt:existingLoc?existingLoc.createdAt:Date.now()
+      };
+      await saveLocation(locObj);
+    } else {
+      // Built-in: save only metadata override
+      await saveLocation({...existingLoc, name:name2, icon:iconInp.value.trim()||existingLoc.icon, color:colorInp.value});
+    }
+    root.innerHTML="";
+    renderSettingsBody();
+  };
+  actions.appendChild(cancel); actions.appendChild(save);
+  sheet.appendChild(actions);
+  overlay.appendChild(sheet); root.appendChild(overlay);
+}
+
+function showDeleteLocationConfirm(locId) {
+  const loc = allLocations[locId];
+  if (!loc) return;
+  const occ = Object.values(slots[locId]||{}).filter(Boolean).length;
+  const root = el("modal-root"); root.innerHTML="";
+  const overlay = document.createElement("div");
+  overlay.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10005;display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box";
+  const card = document.createElement("div");
+  card.style.cssText="background:var(--cream);border-radius:16px;padding:24px;max-width:340px;width:100%";
+  card.appendChild(html(`<div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:800;color:var(--ink);margin-bottom:8px">Delete ${loc.name}?</div>`));
+  const msg = occ>0
+    ? `This location has <strong>${occ} occupied slot${occ>1?"s":""}</strong>. Deleting it will not remove the wines, but their slot assignments will become orphaned until the location is re-added.`
+    : `This will permanently remove <strong>${loc.name}</strong> from your cellar.`;
+  card.appendChild(html(`<div style="color:var(--brown-light);font-size:14px;margin-bottom:20px;line-height:1.5">${msg}</div>`));
+  const btnRow = document.createElement("div"); btnRow.style.cssText="display:flex;gap:8px";
+  const cancelBtn = html(`<button class="btn-ghost" style="flex:1">Cancel</button>`);
+  cancelBtn.onclick=()=>root.innerHTML="";
+  const delBtn = html(`<button class="btn-danger" style="flex:2;padding:12px;font-size:13px;font-weight:700">Delete Location</button>`);
+  delBtn.onclick=async()=>{
+    delBtn.disabled=true; delBtn.textContent="Deleting…";
+    await deleteLocation(locId);
+    if (cellarActiveLoc===locId) cellarActiveLoc=Object.keys(allLocations).find(id=>id!==locId)||"winefridge";
+    root.innerHTML="";
+    renderSettingsBody();
+  };
+  btnRow.appendChild(cancelBtn); btnRow.appendChild(delBtn);
+  card.appendChild(btnRow);
+  overlay.appendChild(card); root.appendChild(overlay);
+}
+
 // ── Theme ────────────────────────────────────────────────────────
 const THEME_KEY = "wine_theme";
 
@@ -3080,6 +3669,8 @@ window.pinPress     = pinPress;
 window.pinDelete    = pinDelete;
 window.switchTab    = switchTab;
 window.toggleTheme  = toggleTheme;
+window.showSettings = showSettings;
+window.closeSettings= closeSettings;
 
 </script>
 </body>
