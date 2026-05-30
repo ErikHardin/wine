@@ -3537,19 +3537,21 @@ function renderSettingsSectionDeleteWine() {
         <div style="color:var(--brown-mid);font-size:14px;margin-bottom:16px">Permanently delete <strong>${wineName}</strong>${winery}? This cannot be undone.</div>`;
       const btnRow = document.createElement("div"); btnRow.style.cssText = "display:flex;gap:10px";
       const cancelB = document.createElement("button"); cancelB.className = "btn-ghost"; cancelB.style.flex = "1"; cancelB.textContent = "Cancel";
-      cancelB.onclick = () => { if (overlay.parentNode) document.body.removeChild(overlay); };
+      cancelB.onclick = () => { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); };
       const confirmB = document.createElement("button"); confirmB.className = "btn-sm danger"; confirmB.style.cssText = "flex:1;padding:10px"; confirmB.textContent = "Delete";
       confirmB.onclick = async () => {
         confirmB.disabled = true;
-        if (overlay.parentNode) document.body.removeChild(overlay);
+        if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
         if (locId && slot) await clearSlot(locId, slot);
         await deleteWine(wine.id);
       };
       btnRow.appendChild(cancelB); btnRow.appendChild(confirmB);
       box.appendChild(btnRow);
       overlay.appendChild(box);
-      overlay.onclick = e => { if (e.target === overlay && overlay.parentNode) document.body.removeChild(overlay); };
-      document.body.appendChild(overlay);
+      overlay.onclick = e => { if (e.target === overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay); };
+      // Append to the settings overlay element so the modal sits above the location group
+      // cards (which have overflow:hidden creating compositing layers on iOS Safari).
+      (document.getElementById("settings-overlay") || document.body).appendChild(overlay);
     }
 
     function buildLocationGroup(loc, wineEntries) {
