@@ -866,8 +866,8 @@ async function initFirebase() {
     render();
     if (document.getElementById("settings-overlay")) renderSettingsBody();
   });
-  onValue(ref(db,"wines"),   snap=>{ wines   =snap.val()||{}; render(); });
-  onValue(ref(db,"slots"),   snap=>{ slots   =snap.val()||{}; render(); });
+  onValue(ref(db,"wines"),   snap=>{ wines   =snap.val()||{}; render(); if(document.getElementById("settings-overlay")) renderSettingsBody(); });
+  onValue(ref(db,"slots"),   snap=>{ slots   =snap.val()||{}; render(); if(document.getElementById("settings-overlay")) renderSettingsBody(); });
   onValue(ref(db,"consumed"),snap=>{ consumed=snap.val()||{}; render(); });
   onValue(ref(db,"trips"),   snap=>{ trips   =snap.val()||{}; render(); });
 }
@@ -3549,21 +3549,23 @@ function renderSettingsSectionDeleteWine() {
       box.appendChild(btnRow);
       overlay.appendChild(box);
       overlay.onclick = e => { if (e.target === overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay); };
-      // Append to the settings overlay element so the modal sits above the location group
-      // cards (which have overflow:hidden creating compositing layers on iOS Safari).
-      (document.getElementById("settings-overlay") || document.body).appendChild(overlay);
+      document.body.appendChild(overlay);
     }
 
     function buildLocationGroup(loc, wineEntries) {
       const group = document.createElement("div");
-      group.style.cssText = "margin-bottom:8px;border:1px solid var(--border);border-radius:10px;overflow:hidden";
+      // No overflow:hidden — it creates a GPU compositing layer on iOS Safari
+      // that renders above fixed-position overlays regardless of z-index.
+      // Border-radius on the header handles corner clipping instead.
+      group.style.cssText = "margin-bottom:8px;border:1px solid var(--border);border-radius:10px";
 
       const chevron = document.createElement("span");
       chevron.style.cssText = "font-size:12px;opacity:0.7";
       chevron.textContent = groupExpanded[loc.id] ? "▼" : "▶";
 
       const groupHdr = document.createElement("div");
-      groupHdr.style.cssText = "display:flex;align-items:center;gap:8px;padding:10px 12px;background:rgba(184,134,11,0.05);cursor:pointer;user-select:none";
+      const hdrRadius = groupExpanded[loc.id] ? "9px 9px 0 0" : "9px";
+      groupHdr.style.cssText = `display:flex;align-items:center;gap:8px;padding:10px 12px;background:rgba(184,134,11,0.05);cursor:pointer;user-select:none;border-radius:${hdrRadius}`;
       const iconSpan = document.createElement("span"); iconSpan.textContent = loc.icon || "📦";
       const nameSpan = document.createElement("span"); nameSpan.style.cssText = "font-weight:600;flex:1;color:var(--ink)"; nameSpan.textContent = loc.name;
       const countSpan = document.createElement("span"); countSpan.style.cssText = "font-size:12px;color:var(--brown-pale)";
@@ -3577,6 +3579,7 @@ function renderSettingsSectionDeleteWine() {
         groupExpanded[loc.id] = !groupExpanded[loc.id];
         groupBody.style.display = groupExpanded[loc.id] ? "block" : "none";
         chevron.textContent = groupExpanded[loc.id] ? "▼" : "▶";
+        groupHdr.style.borderRadius = groupExpanded[loc.id] ? "9px 9px 0 0" : "9px";
       };
 
       wineEntries.forEach(({ slot, wine: w }) => {
