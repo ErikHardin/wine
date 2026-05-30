@@ -850,6 +850,7 @@ async function initFirebase() {
         return [l.id, l];
       })
     );
+    try { localStorage.setItem("wine_allLocations", JSON.stringify(allLocations)); } catch(_) {}
     render();
     if (document.getElementById("settings-overlay")) renderSettingsBody();
   });
@@ -1292,6 +1293,11 @@ async function submitPin() {
 function unlockApp() {
   el("pin-screen").style.display="none";
   el("app").style.display="block";
+  // Pre-populate allLocations from cache so first render isn't blank
+  try {
+    const cached = localStorage.getItem("wine_allLocations");
+    if (cached) allLocations = JSON.parse(cached);
+  } catch(_) {}
   initFirebase();
   localStorage.setItem(SESSION_KEY, Date.now().toString());
   render();
@@ -1306,7 +1312,8 @@ function render() {
 
 function renderHeaderBadges() {
   const stored = storedWineIds();
-  const pending = Object.values(wines).filter(w=>!stored.has(w.id)).length;
+  const consumedIds = new Set(Object.keys(consumed));
+  const pending = Object.values(wines).filter(w=>!stored.has(w.id)&&!consumedIds.has(w.id)).length;
   el("header-badges").innerHTML = `
     ${pending>0?`<div style="background:rgba(184,134,11,0.15);border:1px solid rgba(184,134,11,0.3);border-radius:8px;padding:4px 10px;text-align:center">
       <div style="font-family:'Cormorant Garamond',serif;font-size:16px;font-weight:800;color:var(--gold)">${pending}</div>
