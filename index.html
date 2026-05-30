@@ -225,6 +225,7 @@
     background: rgba(184,134,11,0.15);
     color: var(--gold); border-bottom: 2px solid var(--gold);
   }
+  #tab-subheader:not(:empty) { margin-top: 12px; }
 
   /* ── Slot grid ── */
   .slot {
@@ -481,6 +482,7 @@
       <button class="tab-btn" onclick="switchTab('find')" id="tab-find">🔍 Find</button>
       <button class="tab-btn" onclick="switchTab('consumed')" id="tab-consumed">🍷 Consumed</button>
     </div>
+    <div id="tab-subheader"></div>
   </div>
 
   <!-- Tab content -->
@@ -1353,9 +1355,11 @@ function switchTab(tab) {
 
 function renderTab() {
   const c=el("tab-content");
-  if(currentTab==="trip")     { c.innerHTML=""; c.appendChild(renderTripTab()); }
-  if(currentTab==="cellar")   { c.innerHTML=""; c.appendChild(renderCellarTab()); }
-  if(currentTab==="find")     { c.innerHTML=""; c.appendChild(renderFindTab()); }
+  const sh=el("tab-subheader");
+  sh.innerHTML="";
+  if(currentTab==="trip")     { sh.appendChild(renderTripSubheader()); c.innerHTML=""; c.appendChild(renderTripContent()); }
+  if(currentTab==="cellar")   { sh.appendChild(renderCellarSubheader()); c.innerHTML=""; c.appendChild(renderCellarContent()); }
+  if(currentTab==="find")     { sh.appendChild(renderFindSubheader()); c.innerHTML=""; c.appendChild(renderFindContent()); }
   if(currentTab==="consumed") { c.innerHTML=""; c.appendChild(renderConsumedTab()); }
 }
 
@@ -1443,7 +1447,7 @@ function renderTripSelectorField(form) {
   wrap.appendChild(sel); form.appendChild(wrap);
 }
 
-function renderTripTab() {
+function renderTripSubheader() {
   const stored = storedWineIds();
   const frag = document.createDocumentFragment();
 
@@ -1491,7 +1495,7 @@ function renderTripTab() {
     if (activeTrip) return w.tripId === activeTrip;
     return true;
   });
-  const hdr = html(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+  const hdr = html(`<div style="display:flex;justify-content:space-between;align-items:center">
     <div class="section-label">${unassigned.length} wine${unassigned.length!==1?"s":""} to store</div>
   </div>`);
   const addBtn = html(`<button class="btn-primary" style="width:auto;padding:8px 18px;font-size:13px">+ Add Wine</button>`);
@@ -1503,6 +1507,21 @@ function renderTripTab() {
   btnGroup.appendChild(quickBtn);
   hdr.appendChild(btnGroup);
   frag.appendChild(hdr);
+
+  return frag;
+}
+
+function renderTripContent() {
+  const stored = storedWineIds();
+  const frag = document.createDocumentFragment();
+  const consumedIds = new Set(Object.keys(consumed));
+
+  const unassigned = Object.values(wines).filter(w => {
+    if (stored.has(w.id)) return false;
+    if (consumedIds.has(w.id)) return false;
+    if (activeTrip) return w.tripId === activeTrip;
+    return true;
+  });
 
   if (Object.keys(wines).length===0) {
     frag.appendChild(html(`<div class="empty-state">
@@ -1581,12 +1600,9 @@ function renderTripCard(wine) {
 // ── CELLAR TAB ───────────────────────────────────────────────────
 let cellarActiveLoc = "winefridge";
 
-function renderCellarTab() {
+function renderCellarSubheader() {
   const frag = document.createDocumentFragment();
-  if (Object.keys(allLocations).length === 0) {
-    frag.appendChild(html(`<div class="empty-state"><div class="icon">⏳</div><div class="title">Loading…</div></div>`));
-    return frag;
-  }
+  if (Object.keys(allLocations).length === 0) return frag;
 
   // Guard active location
   if (!allLocations[cellarActiveLoc]) cellarActiveLoc = Object.keys(allLocations)[0];
@@ -1623,14 +1639,27 @@ function renderCellarTab() {
   const total = (loc.slots||[]).length;
   const pct = total>0?Math.round(occ/total*100):0;
 
-  // Capacity bar
-  frag.appendChild(html(`<div style="margin-bottom:18px">
+  // Capacity bar for selected location
+  frag.appendChild(html(`<div>
     <div style="display:flex;justify-content:space-between;margin-bottom:5px">
       <span style="color:var(--brown-mid);font-size:12px">${occ} of ${total} slots used</span>
       <span style="color:${loc.color};font-size:12px;font-weight:700">${pct}%</span>
     </div>
     <div class="drink-bar"><div class="drink-bar-fill" style="width:${pct}%;background:${loc.color}"></div></div>
   </div>`));
+
+  return frag;
+}
+
+function renderCellarContent() {
+  const frag = document.createDocumentFragment();
+  if (Object.keys(allLocations).length === 0) {
+    frag.appendChild(html(`<div class="empty-state"><div class="icon">⏳</div><div class="title">Loading…</div></div>`));
+    return frag;
+  }
+
+  const loc = allLocations[cellarActiveLoc];
+  const locSlots = slots[cellarActiveLoc]||{};
 
   // Slot grid — detect closet-style (object array) vs flat sections (string array)
   const isCloset = loc.grid.sections.length > 0 && typeof loc.grid.sections[0] === 'object';
@@ -1714,23 +1743,30 @@ function refreshFindResults() {
   }
 }
 
-function renderFindTab() {
-  const frag = document.createDocumentFragment();
+function renderFindSubheader() {
   const stored = storedWineIds();
   const storedWines = Object.values(wines).filter(w=>stored.has(w.id));
+  const frag = document.createDocumentFragment();
 
   // Filter panel
   frag.appendChild(renderFilterPanel(storedWines, stored));
 
   // Search — oninput only re-renders the results list, preserving focus
   const searchWrap = document.createElement("div");
-  searchWrap.style.marginBottom="12px";
+  searchWrap.style.marginTop="12px";
   const inp = document.createElement("input");
   inp.placeholder="Search by name, winery, region…";
   inp.value=findQuery;
   inp.oninput=e=>{ findQuery=e.target.value; refreshFindResults(); };
   searchWrap.appendChild(inp);
   frag.appendChild(searchWrap);
+
+  return frag;
+}
+
+function renderFindContent() {
+  const stored = storedWineIds();
+  const storedWines = Object.values(wines).filter(w=>stored.has(w.id));
 
   // Results container (only this part re-renders on text input)
   const resultsList = document.createElement("div");
@@ -1747,6 +1783,8 @@ function renderFindTab() {
   } else {
     filtered.forEach(wine=>{ resultsList.appendChild(renderFindCard(wine,findPlacement(wine.id))); });
   }
+
+  const frag = document.createDocumentFragment();
   frag.appendChild(resultsList);
   return frag;
 }
