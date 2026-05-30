@@ -570,7 +570,7 @@ let allVarietals = [];   // from /config/varietals
 let bulkRefreshRunning  = false;
 let bulkRefreshCancel   = false;
 let bulkRefreshProgress = { done:0, total:0, errors:0, phase:"", currentName:"" };
-let settingsExpanded    = { locations: false, varietals: false, bulk: false };
+let settingsExpanded    = { locations: false, varietals: false, bulk: false, deleteWine: false };
 
 // ── Locations ────────────────────────────────────────────────────
 const LOCATIONS = (() => {
@@ -3412,6 +3412,7 @@ function renderSettingsBody() {
   body.innerHTML = "";
   body.appendChild(renderSettingsSectionLocations());
   body.appendChild(renderSettingsSectionVarietals());
+  body.appendChild(renderSettingsSectionDeleteWine());
   body.appendChild(renderSettingsSectionBulkRefresh());
 }
 
@@ -3516,6 +3517,106 @@ function renderSettingsSectionVarietals() {
     inp.onkeydown = e => { if (e.key==="Enter") addBtn.onclick(); };
     addRow.appendChild(inp); addRow.appendChild(addBtn);
     sec.appendChild(addRow);
+  });
+}
+
+function renderSettingsSectionDeleteWine() {
+  return makeSettingsSection("deleteWine", "Delete Wine", sec => {
+    const groupExpanded = {};
+    const locs = Object.values(allLocations);
+    let hasAny = false;
+
+    function showWineDeleteConfirm(wine, locId, slot) {
+      const overlay = document.createElement("div");
+      overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:3000;display:flex;align-items:center;justify-content:center;padding:20px";
+      const box = document.createElement("div");
+      box.style.cssText = "background:var(--bg);border-radius:16px;padding:20px;max-width:300px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,0.3)";
+      const wineName = wine.wine || "this wine";
+      const winery = wine.winery ? ` by ${wine.winery}` : "";
+      box.innerHTML = `<div style="font-family:'Cormorant Garamond',serif;font-size:18px;font-weight:700;color:var(--ink);margin-bottom:8px">Delete Wine?</div>
+        <div style="color:var(--brown-mid);font-size:14px;margin-bottom:16px">Permanently delete <strong>${wineName}</strong>${winery}? This cannot be undone.</div>`;
+      const btnRow = document.createElement("div"); btnRow.style.cssText = "display:flex;gap:10px";
+      const cancelB = document.createElement("button"); cancelB.className = "btn-ghost"; cancelB.style.flex = "1"; cancelB.textContent = "Cancel";
+      cancelB.onclick = () => { if (overlay.parentNode) document.body.removeChild(overlay); };
+      const confirmB = document.createElement("button"); confirmB.className = "btn-sm danger"; confirmB.style.cssText = "flex:1;padding:10px"; confirmB.textContent = "Delete";
+      confirmB.onclick = async () => {
+        confirmB.disabled = true;
+        if (overlay.parentNode) document.body.removeChild(overlay);
+        if (locId && slot) await clearSlot(locId, slot);
+        await deleteWine(wine.id);
+      };
+      btnRow.appendChild(cancelB); btnRow.appendChild(confirmB);
+      box.appendChild(btnRow);
+      overlay.appendChild(box);
+      overlay.onclick = e => { if (e.target === overlay && overlay.parentNode) document.body.removeChild(overlay); };
+      document.body.appendChild(overlay);
+    }
+
+    function buildLocationGroup(loc, wineEntries) {
+      const group = document.createElement("div");
+      group.style.cssText = "margin-bottom:8px;border:1px solid var(--border);border-radius:10px;overflow:hidden";
+
+      const chevron = document.createElement("span");
+      chevron.style.cssText = "font-size:12px;opacity:0.7";
+      chevron.textContent = groupExpanded[loc.id] ? "▼" : "▶";
+
+      const groupHdr = document.createElement("div");
+      groupHdr.style.cssText = "display:flex;align-items:center;gap:8px;padding:10px 12px;background:rgba(184,134,11,0.05);cursor:pointer;user-select:none";
+      const iconSpan = document.createElement("span"); iconSpan.textContent = loc.icon || "📦";
+      const nameSpan = document.createElement("span"); nameSpan.style.cssText = "font-weight:600;flex:1;color:var(--ink)"; nameSpan.textContent = loc.name;
+      const countSpan = document.createElement("span"); countSpan.style.cssText = "font-size:12px;color:var(--brown-pale)";
+      countSpan.textContent = `${wineEntries.length} wine${wineEntries.length !== 1 ? "s" : ""}`;
+      groupHdr.appendChild(iconSpan); groupHdr.appendChild(nameSpan); groupHdr.appendChild(countSpan); groupHdr.appendChild(chevron);
+
+      const groupBody = document.createElement("div");
+      groupBody.style.display = groupExpanded[loc.id] ? "block" : "none";
+
+      groupHdr.onclick = () => {
+        groupExpanded[loc.id] = !groupExpanded[loc.id];
+        groupBody.style.display = groupExpanded[loc.id] ? "block" : "none";
+        chevron.textContent = groupExpanded[loc.id] ? "▼" : "▶";
+      };
+
+      wineEntries.forEach(({ slot, wine: w }) => {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;align-items:center;gap:10px;padding:10px 12px;border-top:1px solid var(--border)";
+
+        const dot = document.createElement("div");
+        dot.style.cssText = `width:10px;height:10px;border-radius:50%;flex-shrink:0;background:${colorDot(w.color||"Red")}`;
+
+        const info = document.createElement("div");
+        info.style.flex = "1";
+        const label = [w.winery, w.wine].filter(Boolean).join(" – ");
+        const sub = [w.vintage, w.varietal].filter(Boolean).join(" · ");
+        info.innerHTML = `<div style="font-size:13px;font-weight:600;color:var(--ink)">${label || "Unnamed wine"}</div>${sub ? `<div style="font-size:11px;color:var(--brown-mid)">${sub}</div>` : ""}`;
+
+        const delBtn = document.createElement("button");
+        delBtn.className = "btn-sm danger";
+        delBtn.textContent = "Delete";
+        delBtn.onclick = () => showWineDeleteConfirm(w, loc.id, slot);
+
+        row.appendChild(dot); row.appendChild(info); row.appendChild(delBtn);
+        groupBody.appendChild(row);
+      });
+
+      group.appendChild(groupHdr);
+      group.appendChild(groupBody);
+      return group;
+    }
+
+    locs.forEach(loc => {
+      const slotMap = slots[loc.id] || {};
+      const wineEntries = Object.entries(slotMap)
+        .filter(([, wid]) => wid && wines[wid])
+        .map(([slot, wid]) => ({ slot, wine: wines[wid] }));
+      if (wineEntries.length === 0) return;
+      hasAny = true;
+      sec.appendChild(buildLocationGroup(loc, wineEntries));
+    });
+
+    if (!hasAny) {
+      sec.appendChild(html(`<div style="color:var(--brown-pale);font-size:13px;text-align:center;padding:16px">No wines stored in cellar</div>`));
+    }
   });
 }
 
