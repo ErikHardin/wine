@@ -80,7 +80,7 @@
     background: linear-gradient(180deg, rgba(26,16,8,0.98) 0%, rgba(26,16,8,0) 100%);
   }
 
-  [data-theme="dark"] #pin-screen {
+  [data-theme="dark"] #auth-screen {
     background: linear-gradient(160deg, #1a1008 0%, #150e06 60%, #1a1008 100%);
   }
 
@@ -287,35 +287,13 @@
     padding: 3px 9px; border-radius: 8px;
   }
 
-  /* ── PIN screen ── */
-  #pin-screen {
+  /* ── Auth screen ── */
+  #auth-screen {
     position: fixed; inset: 0; z-index: 200;
     background: linear-gradient(160deg, #f5ede0 0%, #ebe0ca 60%, #f0e6d3 100%);
     display: flex; flex-direction: column;
     align-items: center; justify-content: center; padding: 40px 30px;
   }
-  .pin-dots { display: flex; gap: 16px; margin: 32px 0; }
-  .pin-dot {
-    width: 16px; height: 16px; border-radius: 50%;
-    border: 2px solid var(--gold); background: transparent;
-    transition: all 0.2s;
-  }
-  .pin-dot.filled { background: var(--gold); transform: scale(1.1); }
-  .pin-dot.error { border-color: var(--red-wine); background: rgba(139,38,53,0.15); }
-  .pin-keypad {
-    display: grid; grid-template-columns: repeat(3, 72px);
-    gap: 12px; margin-top: 8px;
-  }
-  .pin-key {
-    height: 72px; border-radius: 50%;
-    background: var(--surface); border: 1px solid var(--border);
-    font-family: 'Cormorant Garamond', serif; font-size: 24px;
-    font-weight: 700; color: var(--ink); box-shadow: var(--shadow);
-    transition: all 0.15s; display: flex; align-items: center; justify-content: center;
-  }
-  .pin-key:active { transform: scale(0.93); background: var(--parchment); }
-  .pin-key.delete { font-size: 18px; color: var(--brown-mid); }
-  .pin-key.empty { background: none; border: none; box-shadow: none; pointer-events: none; }
 
   /* ── Misc ── */
   .section-label {
@@ -456,34 +434,23 @@
 </head>
 <body>
 
-<!-- ── PIN Screen ────────────────────────────────────────────────── -->
-<div id="pin-screen">
-  <div style="text-align:center">
+<!-- ── Auth Screen ───────────────────────────────────────────────── -->
+<div id="auth-screen">
+  <div style="text-align:center;margin-bottom:40px">
     <div style="font-size:11px;letter-spacing:4px;text-transform:uppercase;color:var(--brown-pale);margin-bottom:8px;font-family:'Cormorant Garamond',serif">Hardin Wine</div>
     <h1 style="font-family:'Cormorant Garamond',serif;font-size:32px;font-weight:800;color:var(--ink)">Cellar <span style="color:var(--gold)">Manager</span></h1>
-    <p id="pin-subtitle" style="color:var(--brown-mid);font-size:15px;margin-top:10px">Enter your PIN</p>
+    <p style="color:var(--brown-mid);font-size:15px;margin-top:10px">Sign in to continue</p>
   </div>
-  <div class="pin-dots" id="pin-dots">
-    <div class="pin-dot" id="d0"></div>
-    <div class="pin-dot" id="d1"></div>
-    <div class="pin-dot" id="d2"></div>
-    <div class="pin-dot" id="d3"></div>
-  </div>
-  <p id="pin-error" style="color:var(--red-wine);font-size:13px;height:18px;text-align:center;margin-bottom:12px"></p>
-  <div class="pin-keypad" id="pin-keypad">
-    <button class="pin-key" onclick="pinPress(1)">1</button>
-    <button class="pin-key" onclick="pinPress(2)">2</button>
-    <button class="pin-key" onclick="pinPress(3)">3</button>
-    <button class="pin-key" onclick="pinPress(4)">4</button>
-    <button class="pin-key" onclick="pinPress(5)">5</button>
-    <button class="pin-key" onclick="pinPress(6)">6</button>
-    <button class="pin-key" onclick="pinPress(7)">7</button>
-    <button class="pin-key" onclick="pinPress(8)">8</button>
-    <button class="pin-key" onclick="pinPress(9)">9</button>
-    <button class="pin-key empty"></button>
-    <button class="pin-key" onclick="pinPress(0)">0</button>
-    <button class="pin-key delete" onclick="pinDelete()">⌫</button>
-  </div>
+  <button id="google-signin-btn" onclick="handleGoogleSignIn()" style="display:flex;align-items:center;justify-content:center;gap:10px;width:100%;max-width:260px;padding:14px 20px;background:white;border:1px solid #dadce0;border-radius:8px;font-family:'Crimson Pro',serif;font-size:15px;color:#3c4043;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,0.12)">
+    <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+      <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/>
+      <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/>
+      <path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/>
+      <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 6.29C4.672 4.163 6.656 3.58 9 3.58z"/>
+    </svg>
+    Sign in with Google
+  </button>
+  <p id="auth-error" style="color:var(--red-wine);font-size:13px;margin-top:16px;text-align:center;min-height:18px"></p>
 </div>
 
 <!-- ── Main App ──────────────────────────────────────────────────── -->
@@ -498,7 +465,8 @@
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
         <div style="display:flex;gap:6px">
-          <button onclick="showSettings()" style="background:none;border:1px solid var(--border);border-radius:20px;padding:3px 10px;cursor:pointer;font-size:14px;line-height:1;color:var(--brown-mid);transition:border-color 0.2s">⚙️</button>
+          <button id="settings-btn" onclick="showSettings()" style="background:none;border:1px solid var(--border);border-radius:20px;padding:3px 10px;cursor:pointer;font-size:14px;line-height:1;color:var(--brown-mid);transition:border-color 0.2s;display:none">⚙️</button>
+          <button id="signout-btn" onclick="handleSignOut()" style="background:none;border:1px solid var(--border);border-radius:20px;padding:3px 10px;cursor:pointer;font-size:12px;line-height:1;color:var(--brown-mid);transition:border-color 0.2s">Sign Out</button>
           <button id="theme-toggle" onclick="toggleTheme()" style="background:none;border:1px solid var(--border);border-radius:20px;padding:3px 10px;cursor:pointer;font-size:14px;line-height:1;color:var(--brown-mid);transition:border-color 0.2s"><span id="theme-icon">🌙</span></button>
         </div>
         <div style="display:flex;gap:8px" id="header-badges"></div>
@@ -527,6 +495,9 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getDatabase, ref, set, get, onValue, remove, update }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect,
+         getRedirectResult, onAuthStateChanged, signOut }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
 // ── CONFIG — replace with your Firebase project values ──────────
 const firebaseConfig = {
@@ -545,14 +516,17 @@ const WORKER_URL = "https://wine.erikchardin.workers.dev";
 // ── Firebase init ────────────────────────────────────────────────
 const app  = initializeApp(firebaseConfig);
 const db   = getDatabase(app);
+const auth           = getAuth(app);
+const googleProvider = new GoogleAuthProvider();
 
 // ── State ────────────────────────────────────────────────────────
 let wines      = {};   // { id: wineObj }
 let slots      = {};   // { fridge:{}, winefridge:{}, closet:{} }
 let consumed   = {};   // { id: consumedObj }
-let appPin     = null; // stored PIN
-const SESSION_KEY = "wine_session_ts";
-const SESSION_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days in ms
+let currentUser     = null;
+let currentUserRole = null;
+let allUsers        = {};
+const PRIMARY_ADMIN = "erikchardin@gmail.com";
 let currentTab = "cellar";
 let nextId     = Date.now();
 let trips      = {};   // { id: tripObj }
@@ -570,7 +544,7 @@ let allVarietals = [];   // from /config/varietals
 let bulkRefreshRunning  = false;
 let bulkRefreshCancel   = false;
 let bulkRefreshProgress = { done:0, total:0, errors:0, phase:"", currentName:"" };
-let settingsExpanded    = { locations: false, varietals: false, bulk: false, deleteWine: false };
+let settingsExpanded    = { locations: false, varietals: false, bulk: false, deleteWine: false, users: false };
 
 // ── Locations ────────────────────────────────────────────────────
 const LOCATIONS = (() => {
@@ -870,6 +844,20 @@ async function initFirebase() {
   onValue(ref(db,"slots"),   snap=>{ slots   =snap.val()||{}; render(); if(document.getElementById("settings-overlay")) renderSettingsBody(); });
   onValue(ref(db,"consumed"),snap=>{ consumed=snap.val()||{}; render(); });
   onValue(ref(db,"trips"),   snap=>{ trips   =snap.val()||{}; render(); });
+  onValue(ref(db, "config/users"), snap => {
+    allUsers = snap.val() || {};
+    if (currentUser) {
+      const key = emailToKey(currentUser.email);
+      const me = allUsers[key];
+      if (me) {
+        currentUserRole = me.role || "user";
+        updateHeaderAuthButtons();
+      } else {
+        signOut(auth);
+      }
+    }
+    if (document.getElementById("settings-overlay")) renderSettingsBody();
+  });
 }
 
 async function saveWine(wine) {
@@ -1229,81 +1217,112 @@ async function enrichWineData(winery, wine, vintage) {
   return res.json();
 }
 
-// ── PIN logic ────────────────────────────────────────────────────
-let pinEntry = "";
-let pinMode  = "check"; // "check" | "set"
+// ── Auth logic ───────────────────────────────────────────────────
+function initAuth() {
+  const isStandalone = window.matchMedia("(display-mode:standalone)").matches
+                    || navigator.standalone === true;
+  if (isStandalone) {
+    getRedirectResult(auth).catch(() => {});
+  }
+  onAuthStateChanged(auth, async user => {
+    if (user) {
+      await handleAuthUser(user);
+    } else {
+      currentUser = null;
+      currentUserRole = null;
+      showAuthScreen();
+    }
+  });
+}
 
-async function initPin() {
-  const cached = localStorage.getItem(SESSION_KEY);
-  if (cached && (Date.now() - Number(cached)) < SESSION_TTL) {
-    unlockApp();
+async function handleAuthUser(user) {
+  await seedUsersIfEmpty();
+  const emailKey = emailToKey(user.email);
+  const snap = await get(ref(db, `config/users/${emailKey}`));
+  if (!snap.exists()) {
+    await signOut(auth);
+    showAccessDenied(user.email);
     return;
   }
-
-  const snap = await get(ref(db,"config/pin"));
-  if (snap.exists()) {
-    appPin  = snap.val();
-    pinMode = "check";
-    el("pin-subtitle").textContent = "Enter your PIN";
-  } else {
-    pinMode = "set";
-    el("pin-subtitle").textContent = "Create a 4-digit PIN";
-  }
+  currentUser = user;
+  currentUserRole = snap.val().role || "user";
+  unlockApp();
 }
 
-function pinPress(digit) {
-  if (pinEntry.length>=4) return;
-  pinEntry += digit;
-  updatePinDots();
-  if (pinEntry.length===4) setTimeout(submitPin, 120);
-}
-
-function pinDelete() {
-  pinEntry = pinEntry.slice(0,-1);
-  updatePinDots();
-  el("pin-error").textContent="";
-  document.querySelectorAll(".pin-dot").forEach(d=>d.classList.remove("error"));
-}
-
-function updatePinDots() {
-  for (let i=0;i<4;i++) {
-    const d=el(`d${i}`);
-    d.classList.toggle("filled", i<pinEntry.length);
-  }
-}
-
-async function submitPin() {
-  if (pinMode==="set") {
-    appPin = pinEntry;
-    await set(ref(db,"config/pin"), appPin);
-    unlockApp();
-  } else {
-    if (pinEntry===appPin) {
-      unlockApp();
+async function handleGoogleSignIn() {
+  const btn = document.getElementById("google-signin-btn");
+  const errEl = document.getElementById("auth-error");
+  if (btn) { btn.disabled = true; btn.style.opacity = "0.7"; }
+  if (errEl) errEl.textContent = "";
+  const isStandalone = window.matchMedia("(display-mode:standalone)").matches
+                    || navigator.standalone === true;
+  try {
+    if (isStandalone) {
+      await signInWithRedirect(auth, googleProvider);
     } else {
-      document.querySelectorAll(".pin-dot").forEach(d=>d.classList.add("error"));
-      el("pin-error").textContent="Incorrect PIN, try again";
-      pinEntry="";
-      setTimeout(()=>{
-        updatePinDots();
-        document.querySelectorAll(".pin-dot").forEach(d=>d.classList.remove("error"));
-        el("pin-error").textContent="";
-      },900);
+      await signInWithPopup(auth, googleProvider);
     }
+  } catch(err) {
+    if (btn) { btn.disabled = false; btn.style.opacity = "1"; }
+    if (errEl) errEl.textContent = err.code === "auth/popup-closed-by-user"
+      ? "Sign-in cancelled."
+      : "Sign-in failed. Please try again.";
+  }
+}
+
+async function handleSignOut() {
+  await signOut(auth);
+}
+
+function showAuthScreen() {
+  el("auth-screen").style.display = "flex";
+  el("app").style.display = "none";
+  const errEl = document.getElementById("auth-error");
+  if (errEl) errEl.textContent = "";
+  const btn = document.getElementById("google-signin-btn");
+  if (btn) { btn.disabled = false; btn.style.opacity = "1"; }
+}
+
+function showAccessDenied(email) {
+  el("auth-screen").style.display = "flex";
+  el("app").style.display = "none";
+  const errEl = document.getElementById("auth-error");
+  if (errEl) errEl.textContent = `Access denied for ${email}. Contact the admin to be added.`;
+}
+
+function emailToKey(email) {
+  return email.toLowerCase().replace(/\./g, ",");
+}
+
+async function seedUsersIfEmpty() {
+  const snap = await get(ref(db, "config/users"));
+  if (!snap.exists()) {
+    const key = emailToKey(PRIMARY_ADMIN);
+    await set(ref(db, `config/users/${key}`), {
+      email: PRIMARY_ADMIN,
+      role: "admin",
+      addedAt: Date.now(),
+    });
+  }
+}
+
+function updateHeaderAuthButtons() {
+  const settingsBtn = document.getElementById("settings-btn");
+  if (settingsBtn) {
+    settingsBtn.style.display = (currentUserRole === "admin") ? "" : "none";
   }
 }
 
 function unlockApp() {
-  el("pin-screen").style.display="none";
-  el("app").style.display="block";
-  // Pre-populate allLocations from cache so first render isn't blank
+  el("auth-screen").style.display = "none";
+  el("app").style.display = "block";
   try {
     const cached = localStorage.getItem("wine_allLocations");
     if (cached) allLocations = JSON.parse(cached);
   } catch(_) {}
   initFirebase();
-  localStorage.setItem(SESSION_KEY, Date.now().toString());
   render();
+  updateHeaderAuthButtons();
 }
 
 // ── Render ───────────────────────────────────────────────────────
@@ -3366,8 +3385,9 @@ function showSlotDetail(locId,slot,wine){
 
 // ── SETTINGS OVERLAY ─────────────────────────────────────────────
 function showSettings() {
+  if (currentUserRole !== "admin") return;
   if (document.getElementById("settings-overlay")) return;
-  settingsExpanded = { locations: false, varietals: false, bulk: false, deleteWine: false };
+  settingsExpanded = { locations: false, varietals: false, bulk: false, deleteWine: false, users: false };
   const overlay = document.createElement("div");
   overlay.id = "settings-overlay";
   overlay.className = "settings-overlay";
@@ -3410,6 +3430,7 @@ function renderSettingsBody() {
   const body = document.getElementById("settings-body");
   if (!body) return;
   body.innerHTML = "";
+  body.appendChild(renderSettingsSectionUsers());
   body.appendChild(renderSettingsSectionLocations());
   body.appendChild(renderSettingsSectionVarietals());
   body.appendChild(renderSettingsSectionDeleteWine());
@@ -3659,6 +3680,86 @@ function renderSettingsSectionBulkRefresh() {
 
 
 
+function renderSettingsSectionUsers() {
+  return makeSettingsSection("users", "Users & Access", sec => {
+    const users = Object.values(allUsers);
+    if (!users.length) {
+      sec.appendChild(html(`<div style="color:var(--brown-pale);font-size:13px;padding:8px 0">Loading users…</div>`));
+    } else {
+      const list = document.createElement("div");
+      users.sort((a, b) => a.email.localeCompare(b.email)).forEach(u => {
+        const isPrimary = u.email.toLowerCase() === PRIMARY_ADMIN.toLowerCase();
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border-2)";
+
+        const emailSpan = document.createElement("span");
+        emailSpan.style.cssText = "flex:1;font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+        emailSpan.textContent = u.email;
+
+        const roleSelect = document.createElement("select");
+        roleSelect.style.cssText = "font-size:12px;border:1px solid var(--border);border-radius:6px;padding:3px 6px;background:var(--surface-2);color:var(--brown-mid)";
+        ["admin", "user"].forEach(r => {
+          const opt = document.createElement("option");
+          opt.value = r;
+          opt.textContent = r;
+          if (u.role === r) opt.selected = true;
+          roleSelect.appendChild(opt);
+        });
+        if (isPrimary) roleSelect.disabled = true;
+        roleSelect.onchange = async () => {
+          const key = emailToKey(u.email);
+          await update(ref(db, `config/users/${key}`), { role: roleSelect.value });
+        };
+
+        row.appendChild(emailSpan);
+        row.appendChild(roleSelect);
+
+        if (!isPrimary) {
+          const removeBtn = document.createElement("button");
+          removeBtn.className = "btn-sm";
+          removeBtn.style.cssText = "color:var(--red-wine);border-color:var(--red-wine)";
+          removeBtn.textContent = "Remove";
+          removeBtn.onclick = async () => {
+            removeBtn.disabled = true;
+            const key = emailToKey(u.email);
+            await remove(ref(db, `config/users/${key}`));
+          };
+          row.appendChild(removeBtn);
+        }
+        list.appendChild(row);
+      });
+      sec.appendChild(list);
+    }
+
+    const addRow = document.createElement("div");
+    addRow.style.cssText = "display:flex;gap:8px;margin-top:12px;align-items:center";
+    const emailInput = document.createElement("input");
+    emailInput.type = "email";
+    emailInput.placeholder = "user@email.com";
+    emailInput.style.cssText = "flex:1;font-size:13px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2);color:var(--ink)";
+    const addBtn = document.createElement("button");
+    addBtn.className = "btn-sm primary";
+    addBtn.textContent = "+ Add";
+    addBtn.onclick = async () => {
+      const email = emailInput.value.trim().toLowerCase();
+      if (!email || !email.includes("@")) return;
+      const key = emailToKey(email);
+      if (allUsers[key]) { emailInput.value = ""; return; }
+      addBtn.disabled = true;
+      await set(ref(db, `config/users/${key}`), {
+        email,
+        role: "user",
+        addedAt: Date.now(),
+      });
+      emailInput.value = "";
+      addBtn.disabled = false;
+    };
+    addRow.appendChild(emailInput);
+    addRow.appendChild(addBtn);
+    sec.appendChild(addRow);
+  });
+}
+
 function renderSettingsProgressBar() {
   const fill = document.getElementById("bulk-progress-fill");
   const text = document.getElementById("bulk-progress-text");
@@ -3851,15 +3952,15 @@ function toggleTheme() {
 })();
 
 // ── Boot ─────────────────────────────────────────────────────────
-initPin();
+initAuth();
 
 // Expose globals for inline handlers
-window.pinPress     = pinPress;
-window.pinDelete    = pinDelete;
-window.switchTab    = switchTab;
-window.toggleTheme  = toggleTheme;
-window.showSettings = showSettings;
-window.closeSettings= closeSettings;
+window.handleGoogleSignIn = handleGoogleSignIn;
+window.handleSignOut      = handleSignOut;
+window.switchTab          = switchTab;
+window.toggleTheme        = toggleTheme;
+window.showSettings       = showSettings;
+window.closeSettings      = closeSettings;
 
 </script>
 </body>
