@@ -589,6 +589,20 @@ function generateCustomSlots(rows, cols) {
   return s;
 }
 
+function generateSectionSlots(sectionDefs, cols) {
+  const s = [];
+  let num = 1;
+  for (const sec of sectionDefs) {
+    for (let r = 1; r <= sec.rows; r++) {
+      for (let c = 1; c <= cols; c++) {
+        s.push(`${sec.id}-R${r}-${String(num).padStart(2, "0")}`);
+        num++;
+      }
+    }
+  }
+  return s;
+}
+
 const COLOR_OPTIONS   = ["Red","White","Rosé","Sparkling"];
 const VARIETAL_OPTIONS= [
   "Aglianico","Albariño","Aligoté","Amarone Blend","Arneis",
@@ -3844,10 +3858,9 @@ function showEditLocationModal(loc) {
 }
 
 function _showLocationModal(existingLoc) {
-  // Render above the settings overlay (z-index 1000), not inside modal-root
   const overlay = document.createElement("div");
   overlay.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2000;display:flex;align-items:flex-end;justify-content:center";
-  const sheet   = document.createElement("div"); sheet.className="modal-sheet";
+  const sheet = document.createElement("div"); sheet.className="modal-sheet";
   overlay.onclick = e=>{ if(e.target===overlay) document.body.removeChild(overlay); };
   const close = ()=>{ if(overlay.parentNode) document.body.removeChild(overlay); };
   sheet.appendChild(html(`<div class="modal-handle"></div>`));
@@ -3879,55 +3892,212 @@ function _showLocationModal(existingLoc) {
   colorInp.style.cssText="width:60px;height:40px;border-radius:8px;border:1px solid var(--border);padding:2px;cursor:pointer";
   colorWrap.appendChild(colorInp); form.appendChild(colorWrap);
 
-  // Rows × Cols (always shown — detects existing grid size for built-ins)
+  // Detect existing grid type
   const _detectGrid = loc => {
-    if (loc?.rows && loc?.cols) return { rows: loc.rows, cols: loc.cols };
-    let maxRow=1, maxCol=1;
-    for (const s of (loc?.slots||[])) { const m=s.match(/^R(\d+)-(\d+)$/); if(m){maxRow=Math.max(maxRow,+m[1]);maxCol=Math.max(maxCol,+m[2]);} }
-    return { rows:maxRow, cols:maxCol };
+    if (loc?.rows && loc?.cols) return { rows: loc.rows, cols: loc.cols, undetectable: false };
+    let maxRow=1, maxCol=1, anyMatch=false;
+    for (const s of (loc?.slots||[])) {
+      const m=s.match(/^R(\d+)-(\d+)$/);
+      if(m){ anyMatch=true; maxRow=Math.max(maxRow,+m[1]); maxCol=Math.max(maxCol,+m[2]); }
+    }
+    return { rows:maxRow, cols:maxCol, undetectable: !anyMatch && (loc?.slots?.length>0) };
   };
-  const detected = _detectGrid(existingLoc);
-  const rowsWrap = document.createElement("div"); rowsWrap.style.cssText="display:flex;gap:10px";
-  const rDiv = document.createElement("div"); rDiv.style.flex="1";
-  rDiv.appendChild(html(`<div class="field-label">Rows</div>`));
-  const rowsInp = document.createElement("input"); rowsInp.placeholder="4"; rowsInp.inputMode="numeric";
-  rowsInp.value = existingLoc ? detected.rows : 4;
-  rDiv.appendChild(rowsInp); rowsWrap.appendChild(rDiv);
-  const cDiv = document.createElement("div"); cDiv.style.flex="1";
-  cDiv.appendChild(html(`<div class="field-label">Columns</div>`));
-  const colsInp = document.createElement("input"); colsInp.placeholder="6"; colsInp.inputMode="numeric";
-  colsInp.value = existingLoc ? detected.cols : 6;
-  cDiv.appendChild(colsInp); rowsWrap.appendChild(cDiv);
-  form.appendChild(rowsWrap);
-  const previewDiv = document.createElement("div"); previewDiv.style.cssText="color:var(--brown-mid);font-size:12px";
-  const updatePreview = () => {
-    const r2=parseInt(rowsInp.value)||0, c3=parseInt(colsInp.value)||0;
-    previewDiv.textContent = r2&&c3 ? `${r2} × ${c3} = ${r2*c3} slots` : "";
+
+  const hasSections = !!(existingLoc?.grid?.sections?.length && typeof existingLoc.grid.sections[0]==="object");
+  let currentMode = hasSections ? "sections" : "simple";
+
+  // Sections state (mutable, shared between renders)
+  let sectionDefs = hasSections
+    ? existingLoc.grid.sections.map(s=>({rows:s.rows}))
+    : [{rows:2}];
+  let sectionsColsVal = hasSections ? (existingLoc.grid.cols||8) : 8;
+
+  function hasOccupiedSlots() {
+    return !!(existingLoc && Object.values(slots[existingLoc.id]||{}).some(Boolean));
+  }
+  function maybeWarnDataLoss(callback) {
+    if (!hasOccupiedSlots()) { callback(); return; }
+    if (confirm("Changing the grid layout will orphan existing slot assignments. Wines will not be deleted. Continue?")) callback();
+  }
+
+  // Mode toggle
+  const modeToggleRow = document.createElement("div");
+  modeToggleRow.style.cssText="display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden";
+  const simpleBtn = document.createElement("button");
+  simpleBtn.textContent="Simple";
+  simpleBtn.style.cssText="flex:1;padding:9px 12px;border:none;border-right:1px solid var(--border);font-family:inherit;font-size:13px;cursor:pointer;transition:background 0.15s,color 0.15s";
+  const sectionsBtn = document.createElement("button");
+  sectionsBtn.textContent="Sections";
+  sectionsBtn.style.cssText="flex:1;padding:9px 12px;border:none;font-family:inherit;font-size:13px;cursor:pointer;transition:background 0.15s,color 0.15s";
+  function refreshToggleStyles() {
+    simpleBtn.style.background   = currentMode==="simple"   ? "var(--gold)" : "var(--surface-2,#f0e8d8)";
+    simpleBtn.style.color        = currentMode==="simple"   ? "var(--cream)" : "var(--brown-mid)";
+    simpleBtn.style.fontWeight   = currentMode==="simple"   ? "700" : "400";
+    sectionsBtn.style.background = currentMode==="sections" ? "var(--gold)" : "var(--surface-2,#f0e8d8)";
+    sectionsBtn.style.color      = currentMode==="sections" ? "var(--cream)" : "var(--brown-mid)";
+    sectionsBtn.style.fontWeight = currentMode==="sections" ? "700" : "400";
+  }
+  refreshToggleStyles();
+  simpleBtn.onclick = () => {
+    if (currentMode==="simple") return;
+    maybeWarnDataLoss(()=>{ currentMode="simple"; refreshToggleStyles(); renderGridArea(); });
   };
-  rowsInp.oninput=updatePreview; colsInp.oninput=updatePreview;
-  updatePreview();
-  form.appendChild(previewDiv);
+  sectionsBtn.onclick = () => {
+    if (currentMode==="sections") return;
+    maybeWarnDataLoss(()=>{ currentMode="sections"; refreshToggleStyles(); renderGridArea(); });
+  };
+  modeToggleRow.appendChild(simpleBtn); modeToggleRow.appendChild(sectionsBtn);
+  form.appendChild(modeToggleRow);
+
+  // Grid area — rebuilt on mode switch
+  const gridArea = document.createElement("div");
+
+  function renderGridArea() {
+    gridArea.innerHTML="";
+    if (currentMode==="simple") {
+      const detected = _detectGrid(existingLoc);
+      const rowsColsRow = document.createElement("div"); rowsColsRow.style.cssText="display:flex;gap:10px";
+      const rDiv2 = document.createElement("div"); rDiv2.style.flex="1";
+      rDiv2.appendChild(html(`<div class="field-label">Rows</div>`));
+      const rowsInp2 = document.createElement("input"); rowsInp2.inputMode="numeric"; rowsInp2.placeholder="4";
+      if (!detected.undetectable) rowsInp2.value=existingLoc?detected.rows:4; else rowsInp2.placeholder="??";
+      rDiv2.appendChild(rowsInp2); rowsColsRow.appendChild(rDiv2);
+      const cDiv2 = document.createElement("div"); cDiv2.style.flex="1";
+      cDiv2.appendChild(html(`<div class="field-label">Columns</div>`));
+      const colsInp2 = document.createElement("input"); colsInp2.inputMode="numeric"; colsInp2.placeholder="6";
+      if (!detected.undetectable) colsInp2.value=existingLoc?detected.cols:6; else colsInp2.placeholder="??";
+      cDiv2.appendChild(colsInp2); rowsColsRow.appendChild(cDiv2);
+      gridArea.appendChild(rowsColsRow);
+      const prevDiv2 = document.createElement("div"); prevDiv2.style.cssText="color:var(--brown-mid);font-size:12px";
+      const updatePrev2=()=>{
+        const r=parseInt(rowsInp2.value)||0, c=parseInt(colsInp2.value)||0;
+        if (detected.undetectable && !r && !c) {
+          prevDiv2.textContent=`${existingLoc.slots.length} slots — layout cannot be auto-detected. Switch to Sections mode to reconfigure.`;
+        } else {
+          prevDiv2.textContent= r&&c ? `${r} × ${c} = ${r*c} slots` : "";
+        }
+      };
+      rowsInp2.oninput=updatePrev2; colsInp2.oninput=updatePrev2;
+      updatePrev2();
+      gridArea.appendChild(prevDiv2);
+      // Store refs for save handler
+      gridArea._rowsInp=rowsInp2; gridArea._colsInp=colsInp2;
+    } else {
+      // Sections mode
+      gridArea.appendChild(html(`<div class="field-label">Sections</div>`));
+
+      const secList = document.createElement("div"); secList.style.cssText="display:flex;flex-direction:column;gap:6px";
+
+      function updateSectionsPreview() {
+        const cols=parseInt(secColsInp.value)||0;
+        const total=sectionDefs.reduce((a,s)=>a+(s.rows||0),0)*cols;
+        secPreviewDiv.textContent = sectionDefs.length && cols
+          ? `${sectionDefs.length} section${sectionDefs.length>1?"s":""} · ${total} slots total`
+          : "";
+      }
+
+      function rebuildSecList() {
+        secList.innerHTML="";
+        sectionDefs.forEach((sec,i)=>{
+          const row=document.createElement("div");
+          row.style.cssText="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--surface-2,#f0e8d8);border-radius:8px;border:1px solid var(--border)";
+          const label=document.createElement("span");
+          label.textContent=`Section ${i+1}`;
+          label.style.cssText="flex:1;font-size:13px;color:var(--ink);font-weight:600";
+          const rowsLabel=document.createElement("span");
+          rowsLabel.textContent="Rows";
+          rowsLabel.style.cssText="font-size:12px;color:var(--brown-mid)";
+          const rowsInpS=document.createElement("input");
+          rowsInpS.inputMode="numeric"; rowsInpS.value=sec.rows||2;
+          rowsInpS.style.cssText="width:52px;text-align:center;padding:6px";
+          rowsInpS.oninput=()=>{ sectionDefs[i].rows=Math.max(1,parseInt(rowsInpS.value)||1); updateSectionsPreview(); };
+          const delBtn=document.createElement("button");
+          delBtn.textContent="×"; delBtn.type="button";
+          delBtn.style.cssText="background:none;border:none;font-size:18px;color:var(--brown-mid);cursor:pointer;padding:0 2px;line-height:1";
+          delBtn.onclick=()=>{
+            if(sectionDefs.length<=1){alert("At least one section is required.");return;}
+            maybeWarnDataLoss(()=>{ sectionDefs.splice(i,1); rebuildSecList(); updateSectionsPreview(); });
+          };
+          row.appendChild(label); row.appendChild(rowsLabel); row.appendChild(rowsInpS); row.appendChild(delBtn);
+          secList.appendChild(row);
+        });
+      }
+      rebuildSecList();
+      gridArea.appendChild(secList);
+
+      const addSecBtn=html(`<button type="button" class="btn-sm" style="margin-top:4px;width:100%">＋ Add Section</button>`);
+      addSecBtn.onclick=()=>{ sectionDefs.push({rows:2}); rebuildSecList(); updateSectionsPreview(); };
+      gridArea.appendChild(addSecBtn);
+
+      const secColsWrap=document.createElement("div"); secColsWrap.style.cssText="display:flex;align-items:center;gap:10px;margin-top:4px";
+      secColsWrap.appendChild(html(`<div class="field-label" style="margin:0;white-space:nowrap">Columns per section</div>`));
+      const secColsInp=document.createElement("input"); secColsInp.inputMode="numeric";
+      secColsInp.value=sectionsColsVal; secColsInp.style.cssText="width:70px;text-align:center";
+      secColsInp.oninput=()=>{ sectionsColsVal=Math.max(1,parseInt(secColsInp.value)||1); updateSectionsPreview(); };
+      secColsWrap.appendChild(secColsInp);
+      gridArea.appendChild(secColsWrap);
+
+      const secPreviewDiv=document.createElement("div"); secPreviewDiv.style.cssText="color:var(--brown-mid);font-size:12px";
+      gridArea.appendChild(secPreviewDiv);
+      updateSectionsPreview();
+
+      // Store ref for save handler
+      gridArea._secColsInp=secColsInp;
+    }
+  }
+
+  renderGridArea();
+  form.appendChild(gridArea);
 
   sheet.appendChild(form);
-  const actions = html(`<div style="display:flex;gap:10px;margin-top:20px"></div>`);
-  const cancel = html(`<button class="btn-ghost" style="flex:1">Cancel</button>`); cancel.onclick=close;
-  const save = html(`<button class="btn-primary" style="flex:2">${isEdit?"Save Changes":"Add Location"}</button>`);
-  save.onclick = async () => {
-    const name2 = nameInp.value.trim();
-    if (!name2) { alert("Name is required."); return; }
-    const rows2 = Math.max(1, parseInt(rowsInp.value)||4);
-    const cols2 = Math.max(1, parseInt(colsInp.value)||6);
-    save.disabled=true; save.textContent="Saving…";
-    const locId = existingLoc ? existingLoc.id : `loc_${Date.now()}`;
-    const order2 = existingLoc ? (existingLoc.order??99) : Object.keys(allLocations).length;
-    const locObj = {
+  const actions=html(`<div style="display:flex;gap:10px;margin-top:20px"></div>`);
+  const cancel=html(`<button class="btn-ghost" style="flex:1">Cancel</button>`); cancel.onclick=close;
+  const save=html(`<button class="btn-primary" style="flex:2">${isEdit?"Save Changes":"Add Location"}</button>`);
+  save.onclick=async()=>{
+    const name2=nameInp.value.trim();
+    if(!name2){alert("Name is required.");return;}
+    const locId=existingLoc?existingLoc.id:`loc_${Date.now()}`;
+    const order2=existingLoc?(existingLoc.order??99):Object.keys(allLocations).length;
+    const baseFields={
       id:locId, name:name2, icon:iconInp.value.trim()||"📦",
-      color:colorInp.value, rows:rows2, cols:cols2,
-      slots:generateCustomSlots(rows2,cols2),
-      grid:{sections:Array.from({length:rows2},(_,i)=>`R${i+1}`),cols:cols2,sectionCols:null},
-      order:order2, isBuiltin:!!(existingLoc?.isBuiltin), isCustom:!(existingLoc?.isBuiltin),
+      color:colorInp.value, order:order2,
+      isBuiltin:!!(existingLoc?.isBuiltin), isCustom:!(existingLoc?.isBuiltin),
       createdAt:existingLoc?.createdAt??Date.now()
     };
+    let locObj;
+    if(currentMode==="simple"){
+      const rows2=Math.max(1,parseInt(gridArea._rowsInp?.value)||4);
+      const cols2=Math.max(1,parseInt(gridArea._colsInp?.value)||6);
+      const newSlots=generateCustomSlots(rows2,cols2);
+      const changed=JSON.stringify(newSlots)!==JSON.stringify(existingLoc?.slots);
+      if(changed&&hasOccupiedSlots()){
+        if(!confirm("Changing the grid layout will orphan existing slot assignments. Wines will not be deleted. Continue?"))return;
+      }
+      locObj={
+        ...baseFields, rows:rows2, cols:cols2,
+        slots:newSlots,
+        grid:{sections:Array.from({length:rows2},(_,i)=>`R${i+1}`),cols:cols2,sectionCols:null}
+      };
+    } else {
+      const cols2=Math.max(1,parseInt(gridArea._secColsInp?.value)||8);
+      if(!sectionDefs.length){alert("Add at least one section.");return;}
+      let runningStart=1;
+      const sectionsWithLabels=sectionDefs.map((sec,i)=>{
+        const rows2=Math.max(1,sec.rows||1);
+        const count=rows2*cols2;
+        const label=`Section ${i+1} · Slots ${runningStart}–${runningStart+count-1}`;
+        runningStart+=count;
+        return{id:`S${i+1}`,rows:rows2,label};
+      });
+      const newSlots=generateSectionSlots(sectionsWithLabels,cols2);
+      const changed=JSON.stringify(newSlots)!==JSON.stringify(existingLoc?.slots);
+      if(changed&&hasOccupiedSlots()){
+        if(!confirm("Changing the grid layout will orphan existing slot assignments. Wines will not be deleted. Continue?"))return;
+      }
+      locObj={...baseFields, slots:newSlots, grid:{sections:sectionsWithLabels,cols:cols2}};
+      // No top-level rows/cols — ensures Firebase loading uses stored data directly
+    }
+    save.disabled=true; save.textContent="Saving…";
     await saveLocation(locObj);
     close();
   };
