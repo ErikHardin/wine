@@ -1345,7 +1345,7 @@ function render() {
 function renderHeaderBadges() {
   const stored = storedWineIds();
   const consumedIds = new Set(Object.keys(consumed));
-  const pending = Object.values(wines).filter(w=>!stored.has(w.id)&&!consumedIds.has(w.id)).length;
+  const pending = Object.values(wines).filter(w=>!stored.has(w.id)&&!consumedIds.has(w.id)).reduce((s,w)=>s+(parseInt(w.qty)||1),0);
   el("header-badges").innerHTML = `
     ${pending>0?`<div style="background:rgba(184,134,11,0.15);border:1px solid rgba(184,134,11,0.3);border-radius:8px;padding:4px 10px;text-align:center">
       <div style="font-family:'Cormorant Garamond',serif;font-size:16px;font-weight:800;color:var(--gold)">${pending}</div>
@@ -1512,8 +1512,9 @@ function renderTripSubheader() {
     if (activeTrip) return w.tripId === activeTrip;
     return true;
   });
+  const unassignedBottles = unassigned.reduce((s,w)=>s+(parseInt(w.qty)||1),0);
   const hdr = html(`<div style="display:flex;justify-content:space-between;align-items:center">
-    <div class="section-label">${unassigned.length} wine${unassigned.length!==1?"s":""} to store</div>
+    <div class="section-label">${unassignedBottles} bottle${unassignedBottles!==1?"s":""} to store</div>
   </div>`);
   const addBtn = html(`<button class="btn-primary" style="width:auto;padding:8px 18px;font-size:13px">+ Add Wine</button>`);
   addBtn.onclick = () => showAddWineModal();
@@ -2100,10 +2101,17 @@ let scanQueue      = [];
 let scanQueueIndex = 0;
 let isMultiScan    = false;  // true when using sequential multi-bottle scan
 let scanQueueSaved = 0;      // bottles saved so far in this multi-scan session
+let lastQuickAddColor = "Red";
+
+let editScanStep        = "idle"; // "idle" | "scan-back" | "scanning"
+let editScanB64Front    = null;
+let editScanB64Back     = null;
+let editScanPreview     = null;
+let editScanPreviewBack = null;
 
 function showQuickAddModal() {
   if (!activeTrip) { alert("Select a trip first."); return; }
-  let qColor = "Red";
+  let qColor = lastQuickAddColor;
   let qQty   = "1";
 
   function render() {
@@ -2124,7 +2132,7 @@ function showQuickAddModal() {
     COLOR_OPTIONS.forEach(c => {
       const active = qColor === c; const dot = colorDot(c);
       const btn = html(`<button style="flex:1;padding:8px 4px;border-radius:9px;border:1px solid ${active?dot:"var(--border)"};background:${active?dot+"22":"transparent"};color:${active?dot:"var(--brown-pale)"};font-size:11px;cursor:pointer;font-family:inherit;font-weight:700">${c}</button>`);
-      btn.onclick = () => { qColor = c; render(); };
+      btn.onclick = () => { qColor = c; lastQuickAddColor = c; render(); };
       pills.appendChild(btn);
     });
     colorRow.appendChild(pills);
@@ -2266,6 +2274,48 @@ async function continueSingleScan() {
     } catch(e) { console.warn("Enrich failed:", e); }
     addWineScreen = "form"; renderAddWineModal();
   } catch { addWineScanError = "Scan failed — fill in manually."; addWineScreen = "form"; renderAddWineModal(); }
+}
+
+async function continueEditScan(wine) {
+  editScanStep = "scanning"; renderEditWineModal(wine);
+  try {
+    const frontResult = await scanLabel(editScanB64Front);
+    if (frontResult.error) { editScanStep = "idle"; renderEditWineModal(wine); return; }
+    let result = frontResult;
+    if (editScanB64Back) {
+      try {
+        const backResult = await scanLabel(editScanB64Back);
+        if (!backResult.error) {
+          result = { ...frontResult };
+          if (backResult.varietal) result.varietal = backResult.varietal;
+          if (backResult.region)   result.region   = backResult.region;
+        }
+      } catch(_) {}
+    }
+    if (result.winery)   editWineForm.winery   = result.winery;
+    if (result.wine)     editWineForm.wine     = result.wine;
+    if (result.vintage)  editWineForm.vintage  = result.vintage;
+    if (result.varietal) editWineForm.varietal = result.varietal;
+    if (result.region)   editWineForm.region   = result.region;
+    if (COLOR_OPTIONS.includes(result.color)) editWineForm.color = result.color;
+    try {
+      const enriched = await enrichWineData(editWineForm.winery, editWineForm.wine, editWineForm.vintage);
+      if (!enriched.error) {
+        if (enriched.varietal && !editWineForm.varietal) editWineForm.varietal = enriched.varietal;
+        if (enriched.region   && !editWineForm.region)   editWineForm.region   = enriched.region;
+        if (enriched.color    && COLOR_OPTIONS.includes(enriched.color)) editWineForm.color = enriched.color;
+        if (enriched.score)    editWineForm.score    = String(enriched.score);
+        if (enriched.avgPrice) editWineForm.price    = String(enriched.avgPrice);
+        if (enriched.drinkFrom)editWineForm.drinkFrom= String(enriched.drinkFrom);
+        if (enriched.drinkTo)  editWineForm.drinkTo  = String(enriched.drinkTo);
+      }
+    } catch(_) {}
+    try {
+      const pd = await callPairingsAPI(editWineForm.winery, editWineForm.wine, editWineForm.vintage, editWineForm.varietal, editWineForm.region, editWineForm.color);
+      if (pd.pairings) { editWineForm._pairings=pd.pairings; editWineForm._drinkWindow=pd.drinkWindow||null; editWineForm._servingTip=pd.servingTip||null; }
+    } catch(_) {}
+    editScanStep = "idle"; renderEditWineModal(wine);
+  } catch(_) { editScanStep = "idle"; renderEditWineModal(wine); }
 }
 
 function renderAddWineModal() {
@@ -3148,6 +3198,7 @@ function showWineProfile(wine) {
 let editWineForm = {};
 
 function showEditWineModal(wine) {
+  editScanStep = "idle"; editScanB64Front = null; editScanB64Back = null; editScanPreview = null; editScanPreviewBack = null;
   const hasLocal = wine.priceCurrency && wine.priceCurrency !== "USD" && wine.priceLocal > 0;
   editWineForm = {
     winery:       wine.winery   ||"",
@@ -3185,55 +3236,85 @@ function renderEditWineModal(wine) {
   titleRow.appendChild(html(`<div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:800;color:var(--ink)">${wine.isPlaceholder?"Complete Details":"Edit Wine"}</div>`));
   sheet.appendChild(titleRow);
 
-  // Scan button (placeholder only)
+  // Scan section (placeholder only) — supports optional back label
   if (wine.isPlaceholder) {
-    const scanBtn = html(`<button style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:12px;border-radius:12px;border:2px dashed rgba(184,134,11,0.4);background:rgba(184,134,11,0.06);color:var(--gold);font-size:14px;font-family:'Cormorant Garamond',serif;font-weight:700;cursor:pointer;margin-bottom:6px">📷 Scan Label</button>`);
-    const statusDiv = html(`<div style="color:var(--brown-mid);font-size:13px;text-align:center;margin-bottom:14px;min-height:18px"></div>`);
-    scanBtn.onclick = () => {
-      const inp = document.createElement("input"); inp.type="file"; inp.accept="image/*"; inp.capture="environment";
-      inp.onchange = async e => {
-        const file = e.target.files[0]; if (!file) return;
-        scanBtn.disabled = true; scanBtn.textContent = "📷 Scanning…";
-        const reader = new FileReader();
-        reader.onload = async ev => {
-          statusDiv.textContent = "Reading label…";
-          try {
-            const b64 = ev.target.result.split(",")[1];
-            const result = await scanLabel(b64);
-            if (result.error) { statusDiv.textContent = "Couldn't read label — fill in manually."; scanBtn.disabled=false; scanBtn.textContent="📷 Scan Label"; return; }
-            if (result.winery)   editWineForm.winery   = result.winery;
-            if (result.wine)     editWineForm.wine     = result.wine;
-            if (result.vintage)  editWineForm.vintage  = result.vintage;
-            if (result.varietal) editWineForm.varietal = result.varietal;
-            if (result.region)   editWineForm.region   = result.region;
-            if (COLOR_OPTIONS.includes(result.color)) editWineForm.color = result.color;
-            statusDiv.textContent = "Enriching wine data…";
-            try {
-              const enriched = await enrichWineData(editWineForm.winery, editWineForm.wine, editWineForm.vintage);
-              if (!enriched.error) {
-                if (enriched.varietal && !editWineForm.varietal) editWineForm.varietal = enriched.varietal;
-                if (enriched.region   && !editWineForm.region)   editWineForm.region   = enriched.region;
-                if (enriched.color    && COLOR_OPTIONS.includes(enriched.color)) editWineForm.color = enriched.color;
-                if (enriched.score)    editWineForm.score    = String(enriched.score);
-                if (enriched.avgPrice) editWineForm.price    = String(enriched.avgPrice);
-                if (enriched.drinkFrom)editWineForm.drinkFrom= String(enriched.drinkFrom);
-                if (enriched.drinkTo)  editWineForm.drinkTo  = String(enriched.drinkTo);
-              }
-            } catch(_) {}
-            statusDiv.textContent = "Fetching pairings…";
-            try {
-              const pd = await callPairingsAPI(editWineForm.winery, editWineForm.wine, editWineForm.vintage, editWineForm.varietal, editWineForm.region, editWineForm.color);
-              if (pd.pairings) { editWineForm._pairings=pd.pairings; editWineForm._drinkWindow=pd.drinkWindow||null; editWineForm._servingTip=pd.servingTip||null; }
-            } catch(_) {}
+    if (editScanStep === "idle") {
+      const scanBtn = html(`<button style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:12px;border-radius:12px;border:2px dashed rgba(184,134,11,0.4);background:rgba(184,134,11,0.06);color:var(--gold);font-size:14px;font-family:'Cormorant Garamond',serif;font-weight:700;cursor:pointer;margin-bottom:18px">📷 Scan Label</button>`);
+      scanBtn.onclick = () => {
+        const inp = document.createElement("input"); inp.type="file"; inp.accept="image/*"; inp.capture="environment";
+        inp.onchange = e => {
+          const file = e.target.files[0]; if (!file) return;
+          const reader = new FileReader();
+          reader.onload = ev => {
+            editScanPreview     = ev.target.result;
+            editScanB64Front    = ev.target.result.split(",")[1];
+            editScanB64Back     = null;
+            editScanPreviewBack = null;
+            editScanStep = "scan-back";
             renderEditWineModal(wine);
-          } catch(_) { statusDiv.textContent = "Scan failed — fill in manually."; scanBtn.disabled=false; scanBtn.textContent="📷 Scan Label"; }
+          };
+          reader.readAsDataURL(file);
         };
-        reader.readAsDataURL(file);
+        inp.click();
       };
-      inp.click();
-    };
-    sheet.appendChild(scanBtn);
-    sheet.appendChild(statusDiv);
+      sheet.appendChild(scanBtn);
+
+    } else if (editScanStep === "scan-back") {
+      sheet.appendChild(html(`<div style="font-family:'Cormorant Garamond',serif;font-size:17px;font-weight:800;color:var(--ink);margin-bottom:4px">Back Label?</div>`));
+      sheet.appendChild(html(`<div style="color:var(--brown-mid);font-size:13px;margin-bottom:12px">Some bottles have a back label with grape variety and region. Scan it for richer details.</div>`));
+      const frontImg = document.createElement("img"); frontImg.src = editScanPreview;
+      frontImg.style.cssText = "width:100%;max-height:110px;object-fit:contain;border-radius:10px;margin-bottom:10px;background:#f5ede0;border:1px solid var(--border)";
+      sheet.appendChild(frontImg);
+      if (editScanPreviewBack) {
+        const backImg = document.createElement("img"); backImg.src = editScanPreviewBack;
+        backImg.style.cssText = "width:100%;max-height:110px;object-fit:contain;border-radius:10px;margin-bottom:6px;background:#f5ede0;border:1px solid var(--border)";
+        sheet.appendChild(backImg);
+        const rescanLink = html(`<div style="text-align:center;margin-bottom:12px"><button style="background:none;border:none;color:var(--brown-mid);font-size:13px;cursor:pointer;text-decoration:underline">📷 Scan Again</button></div>`);
+        rescanLink.querySelector("button").onclick = () => {
+          const inp2 = document.createElement("input"); inp2.type="file"; inp2.accept="image/*"; inp2.capture="environment";
+          inp2.onchange = e2 => {
+            const f2 = e2.target.files[0]; if (!f2) return;
+            const r2 = new FileReader();
+            r2.onload = ev2 => { editScanPreviewBack=ev2.target.result; editScanB64Back=ev2.target.result.split(",")[1]; renderEditWineModal(wine); };
+            r2.readAsDataURL(f2);
+          };
+          inp2.click();
+        };
+        sheet.appendChild(rescanLink);
+      } else {
+        sheet.appendChild(html(`<div style="border:2px dashed rgba(184,134,11,0.25);border-radius:10px;padding:14px;text-align:center;color:var(--brown-pale);font-size:13px;margin-bottom:12px">No back label yet</div>`));
+      }
+      const sbBtn = html(`<button style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:12px;border-radius:12px;border:2px dashed rgba(184,134,11,0.4);background:rgba(184,134,11,0.06);color:var(--gold);font-size:14px;font-family:'Cormorant Garamond',serif;font-weight:700;cursor:pointer;margin-bottom:10px">📷 Scan Back Label</button>`);
+      sbBtn.onclick = () => {
+        const inp3 = document.createElement("input"); inp3.type="file"; inp3.accept="image/*"; inp3.capture="environment";
+        inp3.onchange = e3 => {
+          const f3 = e3.target.files[0]; if (!f3) return;
+          const r3 = new FileReader();
+          r3.onload = ev3 => { editScanPreviewBack=ev3.target.result; editScanB64Back=ev3.target.result.split(",")[1]; renderEditWineModal(wine); };
+          r3.readAsDataURL(f3);
+        };
+        inp3.click();
+      };
+      sheet.appendChild(sbBtn);
+      const contLabel = editScanB64Back ? "Analyze Both Labels →" : "Skip, Front Label Only →";
+      const contStyle = editScanB64Back
+        ? "width:100%;padding:12px;border-radius:12px;border:none;background:var(--gold);color:white;font-size:15px;font-family:'Cormorant Garamond',serif;font-weight:700;cursor:pointer;margin-bottom:16px"
+        : "width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);background:transparent;color:var(--brown-mid);font-size:14px;font-family:inherit;cursor:pointer;margin-bottom:16px";
+      const contBtn = html(`<button style="${contStyle}">${contLabel}</button>`);
+      contBtn.onclick = () => continueEditScan(wine);
+      sheet.appendChild(contBtn);
+
+    } else if (editScanStep === "scanning") {
+      if (editScanPreview) {
+        const img = document.createElement("img"); img.src = editScanPreview;
+        img.style.cssText = "width:100%;max-height:120px;object-fit:contain;border-radius:10px;margin-bottom:16px;background:#f5ede0";
+        sheet.appendChild(img);
+      }
+      sheet.appendChild(html(`<div style="text-align:center;padding:20px 0">
+        <div class="spinner" style="margin:0 auto 12px"></div>
+        <div style="color:var(--brown-mid);font-size:14px">${editScanB64Back ? "Reading labels…" : "Reading label…"}</div>
+      </div>`));
+    }
   }
 
   const form=document.createElement("div"); form.style.cssText="display:flex;flex-direction:column;gap:13px";
