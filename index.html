@@ -550,7 +550,7 @@ let allVarietals = [];   // from /config/varietals
 let bulkRefreshRunning  = false;
 let bulkRefreshCancel   = false;
 let bulkRefreshProgress = { done:0, total:0, errors:0, phase:"", currentName:"" };
-let settingsExpanded    = { locations: false, varietals: false, bulk: false, deleteWine: false, users: false };
+let settingsExpanded    = { locations: false, varietals: false, bulk: false, deleteWine: false, users: false, trips: false };
 
 // ── Locations ────────────────────────────────────────────────────
 const LOCATIONS = (() => {
@@ -1484,9 +1484,6 @@ function renderTripSubheader() {
   });
   tripSel.onchange = e => { setActiveTrip(e.target.value); renderTab(); };
   tripRow.appendChild(tripSel);
-  const newTripBtn = html(`<button class="btn-ghost" style="width:auto;padding:10px 14px;font-size:18px;flex-shrink:0">+</button>`);
-  newTripBtn.onclick = () => showCreateTripModal();
-  tripRow.appendChild(newTripBtn);
   frag.appendChild(tripRow);
 
   // Capacity bar (only when a specific trip with capacity is selected)
@@ -3514,7 +3511,7 @@ function showSlotDetail(locId,slot,wine){
 function showSettings() {
   if (currentUserRole !== "admin") return;
   if (document.getElementById("settings-overlay")) return;
-  settingsExpanded = { locations: false, varietals: false, bulk: false, deleteWine: false, users: false };
+  settingsExpanded = { locations: false, varietals: false, bulk: false, deleteWine: false, users: false, trips: false };
   const overlay = document.createElement("div");
   overlay.id = "settings-overlay";
   overlay.className = "settings-overlay";
@@ -3560,6 +3557,7 @@ function renderSettingsBody() {
   body.appendChild(renderSettingsSectionUsers());
   body.appendChild(renderSettingsSectionLocations());
   body.appendChild(renderSettingsSectionVarietals());
+  body.appendChild(renderSettingsSectionTrips());
   body.appendChild(renderSettingsSectionDeleteWine());
   body.appendChild(renderSettingsSectionBulkRefresh());
 }
@@ -3689,6 +3687,119 @@ function renderSettingsSectionVarietals() {
     inp.onkeydown = e => { if (e.key==="Enter") addBtn.onclick(); };
     addRow.appendChild(inp); addRow.appendChild(addBtn);
     sec.appendChild(addRow);
+  });
+}
+
+function renderSettingsSectionTrips() {
+  return makeSettingsSection("trips", "Shopping Trips", sec => {
+    const tripList = Object.values(trips).sort((a, b) => b.createdAt - a.createdAt);
+
+    if (tripList.length === 0) {
+      sec.appendChild(html(`<div style="color:var(--brown-pale);font-size:13px;margin-bottom:12px">No trips yet.</div>`));
+    } else {
+      const list = document.createElement("div");
+      list.style.cssText = "margin-bottom:16px";
+      tripList.forEach(trip => {
+        const row = document.createElement("div");
+        row.style.cssText = "padding:10px 0;border-bottom:1px solid var(--border-2)";
+
+        const nameRow = document.createElement("div");
+        nameRow.style.cssText = "font-size:13px;color:var(--ink);margin-bottom:8px;font-weight:600";
+        nameRow.textContent = trip.name;
+        row.appendChild(nameRow);
+
+        const capRow = document.createElement("div");
+        capRow.style.cssText = "display:flex;align-items:center;gap:8px";
+        capRow.appendChild(html(`<div style="font-size:12px;color:var(--brown-mid);flex-shrink:0">Bottle capacity</div>`));
+        const capInp = document.createElement("input");
+        capInp.type = "text";
+        capInp.inputMode = "numeric";
+        capInp.value = trip.capacity > 0 ? String(trip.capacity) : "";
+        capInp.placeholder = "0";
+        capInp.style.cssText = "width:64px;font-size:13px;padding:4px 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2);color:var(--ink)";
+        capInp.oninput = e => { e.target.value = e.target.value.replace(/\D/g, ""); };
+
+        const saveCapBtn = document.createElement("button");
+        saveCapBtn.className = "btn-sm primary";
+        saveCapBtn.textContent = "Save";
+        saveCapBtn.onclick = async () => {
+          saveCapBtn.disabled = true;
+          const updated = { ...trip, capacity: parseInt(capInp.value) || 0 };
+          await saveTrip(updated);
+          saveCapBtn.disabled = false;
+        };
+
+        const deleteBtn = document.createElement("button");
+        deleteBtn.className = "btn-sm";
+        deleteBtn.style.cssText = "color:var(--red-wine);border-color:var(--red-wine);margin-left:auto";
+        deleteBtn.textContent = "Delete";
+        deleteBtn.onclick = async () => {
+          if (!confirm(`Delete trip "${trip.name}"? This will not remove wines already assigned to it.`)) return;
+          deleteBtn.disabled = true;
+          await remove(ref(db, `trips/${trip.id}`));
+          if (activeTrip === trip.id) setActiveTrip("");
+        };
+
+        capRow.appendChild(capInp);
+        capRow.appendChild(saveCapBtn);
+        capRow.appendChild(deleteBtn);
+        row.appendChild(capRow);
+        list.appendChild(row);
+      });
+      sec.appendChild(list);
+    }
+
+    // Add new trip form
+    sec.appendChild(html(`<div style="font-size:12px;color:var(--brown-mid);font-weight:700;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.05em">New Trip</div>`));
+    const form = document.createElement("div");
+    form.style.cssText = "display:flex;flex-direction:column;gap:10px";
+
+    const nameWrap = document.createElement("div");
+    nameWrap.appendChild(html(`<div class="field-label">Trip Name *</div>`));
+    const nameInp = document.createElement("input");
+    nameInp.placeholder = "e.g. Costco Run · May 2026";
+    nameWrap.appendChild(nameInp);
+    form.appendChild(nameWrap);
+
+    const capWrap = document.createElement("div");
+    capWrap.appendChild(html(`<div class="field-label">Bottle Capacity</div>`));
+    const capInp = document.createElement("input");
+    capInp.placeholder = "12";
+    capInp.inputMode = "numeric";
+    capInp.oninput = e => { e.target.value = e.target.value.replace(/\D/g, ""); };
+    capWrap.appendChild(capInp);
+    form.appendChild(capWrap);
+
+    const curWrap = document.createElement("div");
+    curWrap.appendChild(html(`<div class="field-label">Default Currency</div>`));
+    const curSel = document.createElement("select");
+    CURRENCIES.forEach(c => { const o = document.createElement("option"); o.value = c; o.textContent = c; curSel.appendChild(o); });
+    curWrap.appendChild(curSel);
+    form.appendChild(curWrap);
+
+    const createBtn = document.createElement("button");
+    createBtn.className = "btn-sm primary";
+    createBtn.style.cssText = "margin-top:4px;align-self:flex-start";
+    createBtn.textContent = "+ Create Trip";
+    createBtn.onclick = async () => {
+      const name = nameInp.value.trim();
+      if (!name) { alert("Trip name is required."); return; }
+      createBtn.disabled = true;
+      createBtn.textContent = "Creating…";
+      const trip = { id: `t_${Date.now()}`, name, capacity: parseInt(capInp.value) || 0, currency: curSel.value || "USD", createdAt: Date.now() };
+      try {
+        await saveTrip(trip);
+        setActiveTrip(trip.id);
+        nameInp.value = "";
+        capInp.value = "";
+      } catch(e) {
+        alert("Failed to save trip.");
+      }
+      createBtn.disabled = false;
+      createBtn.textContent = "+ Create Trip";
+    };
+    form.appendChild(createBtn);
+    sec.appendChild(form);
   });
 }
 
