@@ -3691,7 +3691,7 @@ function renderSettingsSectionVarietals() {
 }
 
 function renderSettingsSectionTrips() {
-  return makeSettingsSection("trips", "Shopping Trips", sec => {
+  return makeSettingsSection("trips", "Trips", sec => {
     const tripList = Object.values(trips).sort((a, b) => b.createdAt - a.createdAt);
 
     if (tripList.length === 0) {
