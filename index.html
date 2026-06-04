@@ -438,7 +438,7 @@
 <body>
 
 <!-- ── Auth Screen ───────────────────────────────────────────────── -->
-<div id="auth-screen">
+<div id="auth-screen" style="display:none">
   <div style="text-align:center;margin-bottom:40px">
     <div style="font-size:11px;letter-spacing:4px;text-transform:uppercase;color:var(--brown-pale);margin-bottom:8px;font-family:'Cormorant Garamond',serif">Hardin Wine</div>
     <h1 style="font-family:'Cormorant Garamond',serif;font-size:32px;font-weight:800;color:var(--ink)">Cellar <span style="color:var(--gold)">Manager</span></h1>
@@ -454,6 +454,13 @@
     Sign in with Google
   </button>
   <p id="auth-error" style="color:var(--red-wine);font-size:13px;margin-top:16px;text-align:center;min-height:18px"></p>
+</div>
+
+<!-- ── Loading Screen ────────────────────────────────────────────── -->
+<div id="loading-screen" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;background:var(--cream)">
+  <div style="font-family:'Cormorant Garamond',serif;font-size:11px;letter-spacing:4px;text-transform:uppercase;color:var(--brown-pale);margin-bottom:24px">Hardin Wine</div>
+  <div style="width:28px;height:28px;border:2px solid #e8d5a3;border-top-color:var(--gold);border-radius:50%;animation:spin 0.8s linear infinite"></div>
+  <p style="font-family:'Cormorant Garamond',serif;font-size:14px;color:var(--brown-mid);margin-top:16px;letter-spacing:1px">Verifying login…</p>
 </div>
 
 <!-- ── Main App ──────────────────────────────────────────────────── -->
@@ -1285,6 +1292,7 @@ async function handleSignOut() {
 }
 
 function showAuthScreen() {
+  el("loading-screen").style.display = "none";
   el("auth-screen").style.display = "flex";
   el("app").style.display = "none";
   const errEl = document.getElementById("auth-error");
@@ -1294,6 +1302,7 @@ function showAuthScreen() {
 }
 
 function showAccessDenied(email) {
+  el("loading-screen").style.display = "none";
   el("auth-screen").style.display = "flex";
   el("app").style.display = "none";
   const errEl = document.getElementById("auth-error");
@@ -1324,6 +1333,7 @@ function updateHeaderAuthButtons() {
 }
 
 function unlockApp() {
+  el("loading-screen").style.display = "none";
   el("auth-screen").style.display = "none";
   el("app").style.display = "block";
   try {
