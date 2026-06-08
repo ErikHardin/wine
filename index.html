@@ -571,11 +571,11 @@ const LOCATIONS = (() => {
   for (const s of ["F","G"])             for (let i=1;i<=5;i++) wfSlots.push(`${s}${i}`);
 
   const closetSlots = [];
-  const sections = [{id:"S1",rows:2},{id:"S2",rows:3},{id:"S3",rows:3}];
+  const sections = [{id:"S1",start:1,rows:2},{id:"S2",start:17,rows:3},{id:"S3",start:41,rows:3}];
   for (const sec of sections)
     for (let r=1;r<=sec.rows;r++)
       for (let c=1;c<=8;c++)
-        closetSlots.push(`${sec.id}-R${r}-${String(c).padStart(2,"0")}`);
+        closetSlots.push(`${sec.id}-R${r}-${String(sec.start+(r-1)*8+(c-1)).padStart(2,"0")}`);
 
   return {
     fridge:     {id:"fridge",    name:"Main Fridge",    icon:"🧊",color:"#4a9aba",slots:fridgeSlots,
@@ -585,9 +585,9 @@ const LOCATIONS = (() => {
                        sectionCols:{A:7,B:7,C:7,D:7,E:7,F:5,G:5}}},
     closet:     {id:"closet",    name:"Closet Storage", icon:"🗄️",color:"#8b6010",slots:closetSlots,
                  grid:{sections:[
-                   {id:"S1",rows:2,label:"Section 1"},
-                   {id:"S2",rows:3,label:"Section 2"},
-                   {id:"S3",rows:3,label:"Section 3"},
+                   {id:"S1",rows:2,label:"Section 1 · Slots 1–16"},
+                   {id:"S2",rows:3,label:"Section 2 · Slots 17–40"},
+                   {id:"S3",rows:3,label:"Section 3 · Slots 41–64"},
                  ],cols:8}},
   };
 })();
@@ -600,11 +600,13 @@ function generateCustomSlots(rows, cols) {
 
 function generateSectionSlots(sectionDefs, defaultCols) {
   const s = [];
+  let num = 1;
   for (const sec of sectionDefs) {
     const cols = sec.cols || defaultCols;
     for (let r = 1; r <= sec.rows; r++) {
       for (let c = 1; c <= cols; c++) {
-        s.push(`${sec.id}-R${r}-${String(c).padStart(2, "0")}`);
+        s.push(`${sec.id}-R${r}-${String(num).padStart(2, "0")}`);
+        num++;
       }
     }
   }
@@ -868,102 +870,51 @@ function ce(tag,props={},children=[]){
 function html(h){ const d=document.createElement("div"); d.innerHTML=h; return d.firstElementChild; }
 
 // ── Firebase listeners ───────────────────────────────────────────
-async function migrateClosetToPerRowSlots() {
-  const flagSnap = await get(ref(db, "config/migrations/closetPerRowSlots"));
+async function revertClosetToSequentialSlots() {
+  const flagSnap = await get(ref(db, "config/migrations/closetRevertToSequential"));
   if (flagSnap.val()) return;
 
-  const secs=[{id:"S1",start:1,rows:2},{id:"S2",start:17,rows:3},{id:"S3",start:41,rows:3}];
-  const keyMap = {};
-  for (const sec of secs) {
-    for (let r=1; r<=sec.rows; r++) {
-      for (let c=1; c<=8; c++) {
-        const seqNum = sec.start + (r-1)*8 + (c-1);
-        const oldKey = `${sec.id}-R${r}-${String(seqNum).padStart(2,"0")}`;
-        const newKey = `${sec.id}-R${r}-${String(c).padStart(2,"0")}`;
-        if (oldKey !== newKey) keyMap[oldKey] = newKey;
-      }
-    }
-  }
-
-  const slotSnap = await get(ref(db, "slots/closet"));
-  const currentSlots = slotSnap.val() || {};
-
-  const updates = {};
-  for (const [oldKey, newKey] of Object.entries(keyMap)) {
-    const wineId = currentSlots[oldKey];
-    if (wineId) {
-      updates[`slots/closet/${newKey}`] = wineId;
-      updates[`slots/closet/${oldKey}`] = null;
-    }
-  }
-
-  const newSlots = [];
-  for (const sec of [{id:"S1",rows:2},{id:"S2",rows:3},{id:"S3",rows:3}])
-    for (let r=1; r<=sec.rows; r++)
-      for (let c=1; c<=8; c++)
-        newSlots.push(`${sec.id}-R${r}-${String(c).padStart(2,"0")}`);
-  updates["config/locations/closet/slots"] = newSlots;
-  updates["config/migrations/closetPerRowSlots"] = true;
-
-  await update(ref(db), updates);
-}
-
-async function migrateClosetToPerRowSlotsV2() {
-  const flagSnap = await get(ref(db, "config/migrations/closetPerRowSlotsV2"));
-  if (flagSnap.val()) return;
-
-  // Read the actual section structure from Firebase so we handle any sections
-  // the user has added, not just the original hardcoded S1/S2/S3.
+  // Read section structure from Firebase to handle any sections beyond S1/S2/S3.
   const locSnap = await get(ref(db, "config/locations/closet"));
   const loc = locSnap.val();
-  if (!loc) { await set(ref(db,"config/migrations/closetPerRowSlotsV2"),true); return; }
+  if (!loc) { await set(ref(db,"config/migrations/closetRevertToSequential"),true); return; }
 
   const sectionDefs = (loc.grid && loc.grid.sections) || [];
   const defaultCols = (loc.grid && loc.grid.cols) || 8;
 
-  // Rebuild the old global-sequential numbering for every section so we can
-  // derive the correct per-row column for any remaining old-style keys.
-  let seqStart = 1;
+  // Build per-row key → sequential key mapping and the restored slots array.
+  let seqNum = 1;
   const keyMap = {};
+  const restoredSlots = [];
   for (const sec of sectionDefs) {
     const secId = typeof sec === "object" ? sec.id : sec;
     const rows  = typeof sec === "object" ? (sec.rows || 1) : 1;
     const cols  = (typeof sec === "object" && sec.cols) ? sec.cols : defaultCols;
     for (let r = 1; r <= rows; r++) {
       for (let c = 1; c <= cols; c++) {
-        const seqNum = seqStart + (r - 1) * cols + (c - 1);
-        const oldKey = `${secId}-R${r}-${String(seqNum).padStart(2, "0")}`;
-        const newKey = `${secId}-R${r}-${String(c).padStart(2, "0")}`;
-        if (oldKey !== newKey) keyMap[oldKey] = newKey;
+        const perRowKey = `${secId}-R${r}-${String(c).padStart(2, "0")}`;
+        const seqKey    = `${secId}-R${r}-${String(seqNum).padStart(2, "0")}`;
+        if (perRowKey !== seqKey) keyMap[perRowKey] = seqKey;
+        restoredSlots.push(seqKey);
+        seqNum++;
       }
     }
-    seqStart += rows * cols;
   }
 
   const slotSnap = await get(ref(db, "slots/closet"));
   const currentSlots = slotSnap.val() || {};
 
   const updates = {};
-  for (const [oldKey, newKey] of Object.entries(keyMap)) {
-    const wineId = currentSlots[oldKey];
+  for (const [perRowKey, seqKey] of Object.entries(keyMap)) {
+    const wineId = currentSlots[perRowKey];
     if (wineId) {
-      updates[`slots/closet/${newKey}`] = wineId;
-      updates[`slots/closet/${oldKey}`] = null;
+      updates[`slots/closet/${seqKey}`] = wineId;
+      updates[`slots/closet/${perRowKey}`] = null;
     }
   }
 
-  // Regenerate the full slots array using per-row numbering for all sections.
-  const newSlots = [];
-  for (const sec of sectionDefs) {
-    const secId = typeof sec === "object" ? sec.id : sec;
-    const rows  = typeof sec === "object" ? (sec.rows || 1) : 1;
-    const cols  = (typeof sec === "object" && sec.cols) ? sec.cols : defaultCols;
-    for (let r = 1; r <= rows; r++)
-      for (let c = 1; c <= cols; c++)
-        newSlots.push(`${secId}-R${r}-${String(c).padStart(2, "0")}`);
-  }
-  updates["config/locations/closet/slots"] = newSlots;
-  updates["config/migrations/closetPerRowSlotsV2"] = true;
+  updates["config/locations/closet/slots"] = restoredSlots;
+  updates["config/migrations/closetRevertToSequential"] = true;
 
   await update(ref(db), updates);
 }
@@ -1148,8 +1099,7 @@ function closetSlotKey(n) {
     if(n>=sec.start&&n<=end){
       const offset=n-sec.start;
       const r=Math.floor(offset/8)+1;
-      const c=(offset%8)+1;
-      return `${sec.id}-R${r}-${String(c).padStart(2,"0")}`;
+      return `${sec.id}-R${r}-${String(n).padStart(2,"0")}`;
     }
   }
   return null;
@@ -1405,8 +1355,7 @@ function initAuth() {
 
 async function handleAuthUser(user) {
   await seedUsersIfEmpty();
-  await migrateClosetToPerRowSlots();
-  await migrateClosetToPerRowSlotsV2();
+  await revertClosetToSequentialSlots();
   const emailKey = emailToKey(user.email);
   const snap = await get(ref(db, `config/users/${emailKey}`));
   if (!snap.exists()) {
