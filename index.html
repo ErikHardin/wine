@@ -966,10 +966,11 @@ async function runPerSectionFix(locId) {
 }
 
 async function migrateWineFridgeToPerSectionSlots() {
-  // Run on any section-based location that hasn't been migrated yet
+  // Only run on custom (non-builtin) section-based locations — builtin ones like closet use intentional sequential numbering
   const locsSnap = await get(ref(db, "config/locations"));
   const locs = locsSnap.val() || {};
   for (const loc of Object.values(locs)) {
+    if (loc.isBuiltin) continue;
     if (!loc.grid || !loc.grid.sections || typeof loc.grid.sections[0] !== "object") continue;
     const flagSnap = await get(ref(db, `config/migrations/perSectionSlots_${loc.id}`));
     if (flagSnap.val()) continue;
@@ -4061,7 +4062,7 @@ function renderSettingsSectionWineFridgeFix() {
       btn.disabled = true; btn.textContent = "Running…";
       try {
         const targets = Object.values(allLocations).filter(l =>
-          l.grid && l.grid.sections && l.grid.sections.length > 0 && typeof l.grid.sections[0] === "object"
+          !l.isBuiltin && l.grid && l.grid.sections && l.grid.sections.length > 0 && typeof l.grid.sections[0] === "object"
         );
         if (!targets.length) {
           status.textContent = "No section-based locations found.";
