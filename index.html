@@ -838,11 +838,16 @@ function matchesFood(wine, foodId) {
   return (FOOD_ALIASES[foodId]||[foodId]).some(a=>txt.includes(a));
 }
 
-function findPlacement(wineId) {
+function findAllPlacements(wineId) {
+  const results = [];
   for (const locId of Object.keys(allLocations))
     for (const [slot,wid] of Object.entries(slots[locId]||{}))
-      if (wid===wineId) return {locId,slot};
-  return null;
+      if (wid===wineId) results.push({locId,slot});
+  return results;
+}
+
+function findPlacement(wineId) {
+  return findAllPlacements(wineId)[0] ?? null;
 }
 
 function storedWineIds() {
@@ -1084,13 +1089,18 @@ let returnConsumedId = null;
 
 async function returnToCellar(consumedEntry) {
   returnConsumedId = consumedEntry.id;
-  const wine = wines[consumedEntry.id];
+  const originalId = consumedEntry.wineId ?? consumedEntry.id;
+  const wine = wines[originalId];
   if (wine) {
+    // Wine still exists (other bottles remain) — increment qty before reassigning
+    await saveWine({ ...wine, qty: (parseInt(wine.qty) || 0) + 1 });
     showAssignModal(wine);
   } else {
-    // Restore wine record from the consumed snapshot (edge case: wine was deleted)
+    // All bottles were consumed; wine record was deleted — restore it with qty:1
     const restored = { ...consumedEntry };
-    delete restored.locId; delete restored.slot; delete restored.consumedAt;
+    delete restored.locId; delete restored.slot; delete restored.consumedAt; delete restored.wineId;
+    restored.id = originalId;
+    restored.qty = 1;
     await saveWine(restored);
     showAssignModal(restored);
   }
@@ -3180,9 +3190,17 @@ function renderAssignModal(wine) {
             btn.onclick=()=>{
               const takenWine=wines[wid];
               showConsumedConfirm(takenWine,async()=>{
-                const entry={...takenWine,locId:assignLoc,slot:s,consumedAt:Date.now()};
-                await clearSlot(assignLoc,s);
+                const newQty = (parseInt(takenWine.qty) || 1) - 1;
+                const consumedId = `c_${Date.now()}`;
+                const entry = { ...takenWine, id: consumedId, wineId: takenWine.id,
+                                locId: assignLoc, slot: s, consumedAt: Date.now() };
+                await clearSlot(assignLoc, s);
                 await saveConsumed(entry);
+                if(newQty <= 0) {
+                  await deleteWine(takenWine.id);
+                } else {
+                  await saveWine({ ...takenWine, qty: newQty });
+                }
                 assignSlot=s;
                 renderAssignModal(wine);
               });
@@ -3271,6 +3289,38 @@ function showConsumedConfirm(takenWine,onConfirm){
   btnRow.appendChild(cancelBtn); btnRow.appendChild(confirmBtn);
   card.appendChild(title); card.appendChild(body); card.appendChild(btnRow);
   overlay.appendChild(card); document.body.appendChild(overlay);
+}
+
+// ── PICK PLACEMENT MODAL ─────────────────────────────────────────
+function pickPlacementModal(placements) {
+  return new Promise(resolve => {
+    const root = el("modal-root");
+    const overlay = document.createElement("div"); overlay.className="modal-overlay";
+    const sheet = document.createElement("div"); sheet.className="modal-sheet";
+    overlay.onclick = e => { if(e.target===overlay){ resolve(null); root.innerHTML=""; } };
+
+    sheet.appendChild(html(`<div class="modal-handle"></div>`));
+    sheet.appendChild(html(`<div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:800;color:var(--ink);margin-bottom:6px">Which bottle?</div>`));
+    sheet.appendChild(html(`<div style="color:var(--brown-mid);font-size:13px;margin-bottom:16px">Select the bottle you're consuming.</div>`));
+
+    placements.forEach(p => {
+      const loc = allLocations[p.locId];
+      const locName = loc ? loc.name : p.locId;
+      const btn = html(`<button class="btn-ghost" style="width:100%;text-align:left;margin-bottom:8px;padding:12px 14px;display:flex;align-items:center;gap:10px">
+        <span style="font-size:18px">${loc?.icon||"📦"}</span>
+        <span style="flex:1"><strong style="color:var(--ink)">${locName}</strong><span style="color:var(--brown-pale);font-size:12px;margin-left:6px">· ${p.slot}</span></span>
+      </button>`);
+      btn.onclick = () => { resolve(p); root.innerHTML=""; };
+      sheet.appendChild(btn);
+    });
+
+    const cancelBtn = html(`<button class="btn-ghost" style="width:100%;margin-top:4px">Cancel</button>`);
+    cancelBtn.onclick = () => { resolve(null); root.innerHTML=""; };
+    sheet.appendChild(cancelBtn);
+
+    overlay.appendChild(sheet);
+    root.appendChild(overlay);
+  });
 }
 
 // ── WINE PROFILE ─────────────────────────────────────────────────
@@ -3436,9 +3486,20 @@ function showWineProfile(wine) {
   if(placement){
     const consumeBtn=html(`<button class="btn-danger">🍷 Mark as Consumed</button>`);
     consumeBtn.onclick=async()=>{
-      const entry={...wine,locId:placement.locId,slot:placement.slot,consumedAt:Date.now()};
-      await clearSlot(placement.locId,placement.slot);
+      const allPlacements = findAllPlacements(wine.id);
+      const target = allPlacements.length > 1 ? await pickPlacementModal(allPlacements) : allPlacements[0];
+      if(!target) return;
+      const newQty = (parseInt(wine.qty) || 1) - 1;
+      const consumedId = `c_${Date.now()}`;
+      const entry = { ...wine, id: consumedId, wineId: wine.id,
+                      locId: target.locId, slot: target.slot, consumedAt: Date.now() };
+      await clearSlot(target.locId, target.slot);
       await saveConsumed(entry);
+      if(newQty <= 0) {
+        await deleteWine(wine.id);
+      } else {
+        await saveWine({ ...wine, qty: newQty });
+      }
       root.innerHTML="";
     };
     sheet.appendChild(consumeBtn);
