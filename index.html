@@ -600,13 +600,11 @@ function generateCustomSlots(rows, cols) {
 
 function generateSectionSlots(sectionDefs, defaultCols) {
   const s = [];
-  let num = 1;
   for (const sec of sectionDefs) {
     const cols = sec.cols || defaultCols;
     for (let r = 1; r <= sec.rows; r++) {
       for (let c = 1; c <= cols; c++) {
-        s.push(`${sec.id}-R${r}-${String(num).padStart(2, "0")}`);
-        num++;
+        s.push(`${sec.id}-R${r}-${String(c).padStart(2, "0")}`);
       }
     }
   }
@@ -906,6 +904,66 @@ async function migrateClosetToPerRowSlots() {
         newSlots.push(`${sec.id}-R${r}-${String(c).padStart(2,"0")}`);
   updates["config/locations/closet/slots"] = newSlots;
   updates["config/migrations/closetPerRowSlots"] = true;
+
+  await update(ref(db), updates);
+}
+
+async function migrateClosetToPerRowSlotsV2() {
+  const flagSnap = await get(ref(db, "config/migrations/closetPerRowSlotsV2"));
+  if (flagSnap.val()) return;
+
+  // Read the actual section structure from Firebase so we handle any sections
+  // the user has added, not just the original hardcoded S1/S2/S3.
+  const locSnap = await get(ref(db, "config/locations/closet"));
+  const loc = locSnap.val();
+  if (!loc) { await set(ref(db,"config/migrations/closetPerRowSlotsV2"),true); return; }
+
+  const sectionDefs = (loc.grid && loc.grid.sections) || [];
+  const defaultCols = (loc.grid && loc.grid.cols) || 8;
+
+  // Rebuild the old global-sequential numbering for every section so we can
+  // derive the correct per-row column for any remaining old-style keys.
+  let seqStart = 1;
+  const keyMap = {};
+  for (const sec of sectionDefs) {
+    const secId = typeof sec === "object" ? sec.id : sec;
+    const rows  = typeof sec === "object" ? (sec.rows || 1) : 1;
+    const cols  = (typeof sec === "object" && sec.cols) ? sec.cols : defaultCols;
+    for (let r = 1; r <= rows; r++) {
+      for (let c = 1; c <= cols; c++) {
+        const seqNum = seqStart + (r - 1) * cols + (c - 1);
+        const oldKey = `${secId}-R${r}-${String(seqNum).padStart(2, "0")}`;
+        const newKey = `${secId}-R${r}-${String(c).padStart(2, "0")}`;
+        if (oldKey !== newKey) keyMap[oldKey] = newKey;
+      }
+    }
+    seqStart += rows * cols;
+  }
+
+  const slotSnap = await get(ref(db, "slots/closet"));
+  const currentSlots = slotSnap.val() || {};
+
+  const updates = {};
+  for (const [oldKey, newKey] of Object.entries(keyMap)) {
+    const wineId = currentSlots[oldKey];
+    if (wineId) {
+      updates[`slots/closet/${newKey}`] = wineId;
+      updates[`slots/closet/${oldKey}`] = null;
+    }
+  }
+
+  // Regenerate the full slots array using per-row numbering for all sections.
+  const newSlots = [];
+  for (const sec of sectionDefs) {
+    const secId = typeof sec === "object" ? sec.id : sec;
+    const rows  = typeof sec === "object" ? (sec.rows || 1) : 1;
+    const cols  = (typeof sec === "object" && sec.cols) ? sec.cols : defaultCols;
+    for (let r = 1; r <= rows; r++)
+      for (let c = 1; c <= cols; c++)
+        newSlots.push(`${secId}-R${r}-${String(c).padStart(2, "0")}`);
+  }
+  updates["config/locations/closet/slots"] = newSlots;
+  updates["config/migrations/closetPerRowSlotsV2"] = true;
 
   await update(ref(db), updates);
 }
@@ -1348,6 +1406,7 @@ function initAuth() {
 async function handleAuthUser(user) {
   await seedUsersIfEmpty();
   await migrateClosetToPerRowSlots();
+  await migrateClosetToPerRowSlotsV2();
   const emailKey = emailToKey(user.email);
   const snap = await get(ref(db, `config/users/${emailKey}`));
   if (!snap.exists()) {
