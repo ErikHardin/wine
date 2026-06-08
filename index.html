@@ -1609,10 +1609,35 @@ function renderTripCard(wine) {
         </div>
         ${wine.notes?`<div style="color:var(--brown-light);font-size:12px;font-style:italic;margin-top:7px">"${wine.notes}"</div>`:""}
       </div>
-      <div style="color:var(--brown-pale);font-size:18px;padding-left:8px;align-self:center">›</div>
+      <div class="trip-card-right" style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;padding-left:8px"></div>
     </div>
   </div>`);
-  card.onclick=e=>{ if(e.target.closest("button")) return; showEditWineModal(wine); };
+
+  const rightCol = card.querySelector('.trip-card-right');
+  const cbLabel = document.createElement('label');
+  cbLabel.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;';
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.checked = !!wine.bottleConfirmed;
+  cb.style.cssText = 'width:16px;height:16px;accent-color:var(--gold);cursor:pointer;';
+  cb.onclick = e => e.stopPropagation();
+  cb.onchange = () => { updateWine(wine.id, { bottleConfirmed: cb.checked }); wine.bottleConfirmed = cb.checked; };
+  const cbText = document.createElement('span');
+  cbText.textContent = 'Bottle';
+  cbText.style.cssText = 'color:var(--brown-mid);font-size:10px;white-space:nowrap;';
+  const cbText2 = document.createElement('span');
+  cbText2.textContent = 'Confirmed';
+  cbText2.style.cssText = 'color:var(--brown-mid);font-size:10px;white-space:nowrap;';
+  cbLabel.appendChild(cb);
+  cbLabel.appendChild(cbText);
+  cbLabel.appendChild(cbText2);
+  rightCol.appendChild(cbLabel);
+  const chevron = document.createElement('div');
+  chevron.textContent = '›';
+  chevron.style.cssText = 'color:var(--brown-pale);font-size:18px;margin-top:4px;';
+  rightCol.appendChild(chevron);
+
+  card.onclick=e=>{ if(e.target.closest("button")||e.target.closest("label")||e.target.type==="checkbox") return; showEditWineModal(wine); };
 
   const btns=html(`<div style="display:flex;gap:8px;margin-top:12px"></div>`);
   const assign=html(`<button class="btn-primary" style="flex:2">📍 Assign to Storage</button>`);
