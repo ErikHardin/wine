@@ -2964,10 +2964,14 @@ function renderAddWineModal() {
 // ── ASSIGN MODAL ─────────────────────────────────────────────────
 let assignLoc  = "winefridge";
 let assignSlot = null;
+let assignBottleIndex = 0;
+let assignSessionSlots = []; // {locId, slot} pairs saved in this session
 
 function showAssignModal(wine) {
   assignLoc  = allLocations["winefridge"] ? "winefridge" : Object.keys(allLocations)[0] || "winefridge";
   assignSlot = null;
+  assignBottleIndex = 0;
+  assignSessionSlots = [];
   renderAssignModal(wine);
 }
 
@@ -2978,8 +2982,17 @@ function renderAssignModal(wine) {
   // When returning a consumed bottle, require slot selection — no tap-outside dismiss
   if (!returnConsumedId) overlay.onclick=e=>{ if(e.target===overlay) root.innerHTML=""; };
   sheet.appendChild(html(`<div class="modal-handle"></div>`));
-  sheet.appendChild(html(`<div style="font-family:'Cormorant Garamond',serif;font-size:19px;font-weight:800;color:var(--ink);margin-bottom:2px">Assign to Storage</div>`));
-  sheet.appendChild(html(`<div style="color:var(--brown-light);font-size:13px;font-style:italic;margin-bottom:18px">${wine.wine} · ${wine.vintage||""}</div>`));
+  const assignQty = parseInt(wine.qty) || 1;
+  const multiBottle = assignQty > 1;
+  const assignTitle = multiBottle ? `Assign to Storage · Bottle ${assignBottleIndex+1} of ${assignQty}` : "Assign to Storage";
+  sheet.appendChild(html(`<div style="font-family:'Cormorant Garamond',serif;font-size:19px;font-weight:800;color:var(--ink);margin-bottom:2px">${assignTitle}</div>`));
+  sheet.appendChild(html(`<div style="color:var(--brown-light);font-size:13px;font-style:italic;margin-bottom:${multiBottle?8:18}px">${wine.wine} · ${wine.vintage||""}</div>`));
+  if (multiBottle && assignSessionSlots.length > 0) {
+    const placed = assignSessionSlots.map((as,i)=>`<span style="color:var(--brown-mid)">Bottle ${i+1}:</span> <span style="color:${allLocations[as.locId]?.color||"var(--gold)"};font-family:monospace;font-weight:700">${allLocations[as.locId]?.name||as.locId} · ${as.slot}</span>`).join("  ");
+    sheet.appendChild(html(`<div style="font-size:11px;margin-bottom:14px;padding:8px 10px;background:rgba(0,120,0,0.06);border:1px solid rgba(0,120,0,0.15);border-radius:8px;line-height:1.7">${placed}</div>`));
+  } else if (multiBottle) {
+    sheet.appendChild(html(`<div style="font-size:11px;color:var(--brown-pale);margin-bottom:14px">Assign a slot for each bottle</div>`));
+  }
 
   // Location picker
   const locRow=document.createElement("div"); locRow.style.cssText="display:flex;gap:7px;margin-bottom:18px;flex-wrap:wrap";
@@ -3016,25 +3029,31 @@ function renderAssignModal(wine) {
       grid.style.cssText=`display:grid;grid-template-columns:repeat(${colCount},1fr);gap:4px;margin-bottom:${rowCount>1?"4px":"0"}`;
       rowSlots.forEach(s=>{
         const wid   = locSlots[s];
-        const taken = wid && wid!==wine.id;
+        const savedHere = assignSessionSlots.some(as=>as.locId===assignLoc&&as.slot===s);
+        const taken = (wid && wid!==wine.id) || savedHere;
         const sel   = assignSlot===s;
         const lbl   = isCloset ? s.split("-").pop() : s;
         const btn   = document.createElement("button");
-        btn.style.cssText=`aspect-ratio:1;border-radius:5px;border:${sel?`2px solid ${loc.color}`:taken?"1px solid rgba(139,0,0,0.4)":"1px solid var(--border)"};background:${sel?loc.color+"22":taken?"rgba(139,0,0,0.15)":"var(--surface-3)"};color:${sel?loc.color:taken?"#8b0000":"var(--brown-pale)"};font-size:${taken?10:8}px;font-family:monospace;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0;transition:all 0.12s`;
-        btn.innerHTML=taken?`<div style="font-size:14px;line-height:1">🍷</div><div style="font-size:8px;line-height:1.2;margin-top:1px">${lbl}</div>`:lbl;
-        if(taken){
-          btn.onclick=()=>{
-            const takenWine=wines[wid];
-            showConsumedConfirm(takenWine,async()=>{
-              const entry={...takenWine,locId:assignLoc,slot:s,consumedAt:Date.now()};
-              await clearSlot(assignLoc,s);
-              await saveConsumed(entry);
-              assignSlot=s;
-              renderAssignModal(wine);
-            });
-          };
+        if (savedHere) {
+          btn.style.cssText=`aspect-ratio:1;border-radius:5px;border:1px solid rgba(0,140,0,0.45);background:rgba(0,140,0,0.12);color:#2a7a2a;font-size:8px;font-family:monospace;font-weight:700;cursor:default;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0`;
+          btn.innerHTML=`<div style="font-size:14px;line-height:1">✓</div><div style="font-size:8px;line-height:1.2;margin-top:1px">${lbl}</div>`;
         } else {
-          btn.onclick=()=>{ assignSlot=s; renderAssignModal(wine); };
+          btn.style.cssText=`aspect-ratio:1;border-radius:5px;border:${sel?`2px solid ${loc.color}`:taken?"1px solid rgba(139,0,0,0.4)":"1px solid var(--border)"};background:${sel?loc.color+"22":taken?"rgba(139,0,0,0.15)":"var(--surface-3)"};color:${sel?loc.color:taken?"#8b0000":"var(--brown-pale)"};font-size:${taken?10:8}px;font-family:monospace;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0;transition:all 0.12s`;
+          btn.innerHTML=taken?`<div style="font-size:14px;line-height:1">🍷</div><div style="font-size:8px;line-height:1.2;margin-top:1px">${lbl}</div>`:lbl;
+          if(taken){
+            btn.onclick=()=>{
+              const takenWine=wines[wid];
+              showConsumedConfirm(takenWine,async()=>{
+                const entry={...takenWine,locId:assignLoc,slot:s,consumedAt:Date.now()};
+                await clearSlot(assignLoc,s);
+                await saveConsumed(entry);
+                assignSlot=s;
+                renderAssignModal(wine);
+              });
+            };
+          } else {
+            btn.onclick=()=>{ assignSlot=s; renderAssignModal(wine); };
+          }
         }
         grid.appendChild(btn);
       });
@@ -3050,22 +3069,36 @@ function renderAssignModal(wine) {
     </div>`));
   }
 
-  const saveBtnLabel = assignSlot ? `Save to ${allLocations[assignLoc].name} · ${assignSlot}` : "Select a slot above";
+  const isLastBottle = assignBottleIndex + 1 >= assignQty;
+  const saveBtnLabel = assignSlot
+    ? (multiBottle && !isLastBottle ? `Save Bottle ${assignBottleIndex+1} · Next →` : `Save to ${allLocations[assignLoc].name} · ${assignSlot}`)
+    : "Select a slot above";
   const saveBtn=html(`<button class="${assignSlot?"btn-primary":"btn-ghost"}" style="${assignSlot?"":"cursor:not-allowed;opacity:0.5"}">${saveBtnLabel}</button>`);
   saveBtn.onclick=async()=>{
     if(!assignSlot) return;
-    // Clear any old slot for this wine
-    for(const lid of Object.keys(allLocations))
-      for(const [sl,wid] of Object.entries(slots[lid]||{}))
-        if(wid===wine.id) await clearSlot(lid,sl);
+    // Clear any old slots for this wine only on the first bottle of this session
+    if (assignBottleIndex === 0) {
+      for(const lid of Object.keys(allLocations))
+        for(const [sl,wid] of Object.entries(slots[lid]||{}))
+          if(wid===wine.id) await clearSlot(lid,sl);
+    }
     await saveSlot(assignLoc,assignSlot,wine.id);
+    assignSessionSlots.push({locId:assignLoc,slot:assignSlot});
     if(!wine.pairings) fetchPairingsForWine(wine);
     // If returning a consumed bottle, delete the consumed record now
     if (returnConsumedId) {
       await remove(ref(db, `consumed/${returnConsumedId}`));
       returnConsumedId = null;
     }
-    root.innerHTML="";
+    if (!isLastBottle) {
+      // Advance to next bottle
+      assignBottleIndex++;
+      assignSlot = null;
+      assignLoc = allLocations["winefridge"] ? "winefridge" : Object.keys(allLocations)[0] || "winefridge";
+      renderAssignModal(wine);
+    } else {
+      root.innerHTML="";
+    }
   };
   if (returnConsumedId) {
     const cancelBtn = html(`<button class="btn-ghost" style="margin-top:8px;width:100%">Cancel</button>`);
