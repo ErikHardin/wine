@@ -786,6 +786,50 @@ function buildPriceField(form, formObj, queueItemRef) {
   form.appendChild(preview);
 }
 
+function buildVarietalField(container, formObj, extraOnChange) {
+  const wrap = document.createElement("div");
+  wrap.appendChild(html(`<div class="field-label">Varietal</div>`));
+
+  function getSelected() {
+    return (formObj.varietal || "").split(",").map(v => v.trim()).filter(Boolean);
+  }
+
+  function setSelected(arr) {
+    formObj.varietal = arr.join(", ");
+    if (extraOnChange) extraOnChange(formObj.varietal);
+    render();
+  }
+
+  const pillsDiv = document.createElement("div");
+  pillsDiv.style.cssText = "display:flex;flex-wrap:wrap;gap:2px;margin-bottom:4px";
+
+  const addSel = document.createElement("select");
+
+  function render() {
+    const selected = getSelected();
+    pillsDiv.innerHTML = "";
+    selected.forEach(v => {
+      const pill = document.createElement("span"); pill.className = "varietal-pill"; pill.textContent = v;
+      const rm = document.createElement("button"); rm.className = "varietal-pill-remove"; rm.textContent = "×"; rm.type = "button";
+      rm.onclick = () => setSelected(selected.filter(s => s !== v));
+      pill.appendChild(rm); pillsDiv.appendChild(pill);
+    });
+    addSel.innerHTML = `<option value="">Add varietal…</option>`;
+    (allVarietals.length ? allVarietals : VARIETAL_OPTIONS).filter(v => !selected.includes(v)).forEach(v => {
+      const o = document.createElement("option"); o.value = v; o.textContent = v; addSel.appendChild(o);
+    });
+  }
+
+  addSel.onchange = e => {
+    const v = e.target.value; if (!v) return;
+    const sel = getSelected(); if (!sel.includes(v)) setSelected([...sel, v]);
+    addSel.value = "";
+  };
+
+  render();
+  wrap.appendChild(pillsDiv); wrap.appendChild(addSel); container.appendChild(wrap);
+}
+
 function colorDot(c) {
   return {Red:"#8b2635",White:"#b8960b",Rosé:"#c06070",Sparkling:"#4a80a0"}[c]||"var(--brown-mid)";
 }
@@ -1813,7 +1857,7 @@ function filterWines(storedWines) {
   return storedWines.filter(w=>{
     if(findQuery && !`${w.winery} ${w.wine} ${w.vintage} ${w.varietal} ${w.region}`.toLowerCase().includes(findQuery.toLowerCase())) return false;
     if(findFilters.color    && w.color!==findFilters.color) return false;
-    if(findFilters.varietal && w.varietal!==findFilters.varietal) return false;
+    if(findFilters.varietal && !(w.varietal||"").split(",").map(v=>v.trim()).includes(findFilters.varietal)) return false;
     if(findFilters.region   && !w.region?.toLowerCase().includes(findFilters.region.toLowerCase())) return false;
     if(findFilters.vintageFrom && parseInt(w.vintage)<parseInt(findFilters.vintageFrom)) return false;
     if(findFilters.vintageTo   && parseInt(w.vintage)>parseInt(findFilters.vintageTo))   return false;
@@ -2678,18 +2722,7 @@ function renderAddWineModal() {
     });
     form.appendChild(row1);
 
-    // Varietal text input with datalist suggestions
-    { let dl=document.getElementById("varietal-suggestions");
-      if(!dl){ dl=document.createElement("datalist"); dl.id="varietal-suggestions"; document.body.appendChild(dl); }
-      dl.innerHTML="";
-      (allVarietals.length?allVarietals:VARIETAL_OPTIONS).forEach(v=>{ const o=document.createElement("option"); o.value=v; dl.appendChild(o); });
-    }
-    const varWrap=document.createElement("div");
-    varWrap.appendChild(html(`<div class="field-label">Varietal</div>`));
-    const varInp=document.createElement("input"); varInp.placeholder="e.g. Cabernet Sauvignon"; varInp.value=addWineForm.varietal;
-    varInp.setAttribute("list","varietal-suggestions");
-    varInp.oninput=e=>addWineForm.varietal=e.target.value;
-    varWrap.appendChild(varInp); form.appendChild(varWrap);
+    buildVarietalField(form, addWineForm);
 
     // Region
     const regWrap=document.createElement("div");
@@ -2839,18 +2872,7 @@ function renderAddWineModal() {
       w.appendChild(inp); row1.appendChild(w);
     });
     form.appendChild(row1);
-    // Varietal
-    { let dl=document.getElementById("varietal-suggestions");
-      if(!dl){ dl=document.createElement("datalist"); dl.id="varietal-suggestions"; document.body.appendChild(dl); }
-      dl.innerHTML="";
-      (allVarietals.length?allVarietals:VARIETAL_OPTIONS).forEach(v=>{ const o=document.createElement("option"); o.value=v; dl.appendChild(o); });
-    }
-    const varWrap=document.createElement("div");
-    varWrap.appendChild(html(`<div class="field-label">Varietal</div>`));
-    const varInp=document.createElement("input"); varInp.placeholder="e.g. Cabernet Sauvignon"; varInp.value=addWineForm.varietal;
-    varInp.setAttribute("list","varietal-suggestions");
-    varInp.oninput=e=>{ addWineForm.varietal=e.target.value; if(scanQueue[scanQueueIndex]) scanQueue[scanQueueIndex].varietal=e.target.value; };
-    varWrap.appendChild(varInp); form.appendChild(varWrap);
+    buildVarietalField(form, addWineForm, v => { if(scanQueue[scanQueueIndex]) scanQueue[scanQueueIndex].varietal = v; });
     // Region
     const regWrap=document.createElement("div");
     regWrap.appendChild(html(`<div class="field-label">Region / Appellation</div>`));
@@ -3470,18 +3492,7 @@ function renderEditWineModal(wine) {
   });
   form.appendChild(row1);
 
-  // Varietal
-  { let dl=document.getElementById("varietal-suggestions");
-    if(!dl){ dl=document.createElement("datalist"); dl.id="varietal-suggestions"; document.body.appendChild(dl); }
-    dl.innerHTML="";
-    (allVarietals.length?allVarietals:VARIETAL_OPTIONS).forEach(v=>{ const o=document.createElement("option"); o.value=v; dl.appendChild(o); });
-  }
-  const varWrap=document.createElement("div");
-  varWrap.appendChild(html(`<div class="field-label">Varietal</div>`));
-  const varInp=document.createElement("input"); varInp.placeholder="e.g. Cabernet Sauvignon"; varInp.value=editWineForm.varietal;
-  varInp.setAttribute("list","varietal-suggestions");
-  varInp.oninput=e=>editWineForm.varietal=e.target.value;
-  varWrap.appendChild(varInp); form.appendChild(varWrap);
+  buildVarietalField(form, editWineForm);
 
   // Region
   const regWrap=document.createElement("div");
