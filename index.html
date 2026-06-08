@@ -438,7 +438,7 @@
 <body>
 
 <!-- ── Auth Screen ───────────────────────────────────────────────── -->
-<div id="auth-screen">
+<div id="auth-screen" style="display:none">
   <div style="text-align:center;margin-bottom:40px">
     <div style="font-size:11px;letter-spacing:4px;text-transform:uppercase;color:var(--brown-pale);margin-bottom:8px;font-family:'Cormorant Garamond',serif">Hardin Wine</div>
     <h1 style="font-family:'Cormorant Garamond',serif;font-size:32px;font-weight:800;color:var(--ink)">Cellar <span style="color:var(--gold)">Manager</span></h1>
@@ -454,6 +454,13 @@
     Sign in with Google
   </button>
   <p id="auth-error" style="color:var(--red-wine);font-size:13px;margin-top:16px;text-align:center;min-height:18px"></p>
+</div>
+
+<!-- ── Loading Screen ────────────────────────────────────────────── -->
+<div id="loading-screen" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;background:var(--cream)">
+  <div style="font-family:'Cormorant Garamond',serif;font-size:11px;letter-spacing:4px;text-transform:uppercase;color:var(--brown-pale);margin-bottom:24px">Hardin Wine</div>
+  <div style="width:28px;height:28px;border:2px solid #e8d5a3;border-top-color:var(--gold);border-radius:50%;animation:spin 0.8s linear infinite"></div>
+  <p style="font-family:'Cormorant Garamond',serif;font-size:14px;color:var(--brown-mid);margin-top:16px;letter-spacing:1px">Verifying login…</p>
 </div>
 
 <!-- ── Main App ──────────────────────────────────────────────────── -->
@@ -539,6 +546,7 @@ let trips      = {};   // { id: tripObj }
 let activeTrip = localStorage.getItem("wine_active_trip") || "";
 function setActiveTrip(id) {
   activeTrip = id;
+  tripColorExpanded = {};
   try { id ? localStorage.setItem("wine_active_trip", id) : localStorage.removeItem("wine_active_trip"); } catch(_) {}
 }
 
@@ -550,7 +558,8 @@ let allVarietals = [];   // from /config/varietals
 let bulkRefreshRunning  = false;
 let bulkRefreshCancel   = false;
 let bulkRefreshProgress = { done:0, total:0, errors:0, phase:"", currentName:"" };
-let settingsExpanded    = { locations: false, varietals: false, bulk: false, deleteWine: false, users: false, trips: false };
+let settingsExpanded    = { locations: false, varietals: false, bulk: false, deleteWine: false, users: false, trips: false, orphanWines: false };
+let tripColorExpanded   = {};
 
 // ── Locations ────────────────────────────────────────────────────
 const LOCATIONS = (() => {
@@ -775,6 +784,50 @@ function buildPriceField(form, formObj, queueItemRef) {
   priceRow.appendChild(curWrap); priceRow.appendChild(amtWrap);
   form.appendChild(priceRow);
   form.appendChild(preview);
+}
+
+function buildVarietalField(container, formObj, extraOnChange) {
+  const wrap = document.createElement("div");
+  wrap.appendChild(html(`<div class="field-label">Varietal</div>`));
+
+  function getSelected() {
+    return (formObj.varietal || "").split(",").map(v => v.trim()).filter(Boolean);
+  }
+
+  function setSelected(arr) {
+    formObj.varietal = arr.join(", ");
+    if (extraOnChange) extraOnChange(formObj.varietal);
+    render();
+  }
+
+  const pillsDiv = document.createElement("div");
+  pillsDiv.style.cssText = "display:flex;flex-wrap:wrap;gap:2px;margin-bottom:4px";
+
+  const addSel = document.createElement("select");
+
+  function render() {
+    const selected = getSelected();
+    pillsDiv.innerHTML = "";
+    selected.forEach(v => {
+      const pill = document.createElement("span"); pill.className = "varietal-pill"; pill.textContent = v;
+      const rm = document.createElement("button"); rm.className = "varietal-pill-remove"; rm.textContent = "×"; rm.type = "button";
+      rm.onclick = () => setSelected(selected.filter(s => s !== v));
+      pill.appendChild(rm); pillsDiv.appendChild(pill);
+    });
+    addSel.innerHTML = `<option value="">Add varietal…</option>`;
+    (allVarietals.length ? allVarietals : VARIETAL_OPTIONS).filter(v => !selected.includes(v)).forEach(v => {
+      const o = document.createElement("option"); o.value = v; o.textContent = v; addSel.appendChild(o);
+    });
+  }
+
+  addSel.onchange = e => {
+    const v = e.target.value; if (!v) return;
+    const sel = getSelected(); if (!sel.includes(v)) setSelected([...sel, v]);
+    addSel.value = "";
+  };
+
+  render();
+  wrap.appendChild(pillsDiv); wrap.appendChild(addSel); container.appendChild(wrap);
 }
 
 function colorDot(c) {
@@ -1285,6 +1338,7 @@ async function handleSignOut() {
 }
 
 function showAuthScreen() {
+  el("loading-screen").style.display = "none";
   el("auth-screen").style.display = "flex";
   el("app").style.display = "none";
   const errEl = document.getElementById("auth-error");
@@ -1294,6 +1348,7 @@ function showAuthScreen() {
 }
 
 function showAccessDenied(email) {
+  el("loading-screen").style.display = "none";
   el("auth-screen").style.display = "flex";
   el("app").style.display = "none";
   const errEl = document.getElementById("auth-error");
@@ -1324,6 +1379,7 @@ function updateHeaderAuthButtons() {
 }
 
 function unlockApp() {
+  el("loading-screen").style.display = "none";
   el("auth-screen").style.display = "none";
   el("app").style.display = "block";
   try {
@@ -1559,7 +1615,59 @@ function renderTripContent() {
     return frag;
   }
 
-  unassigned.forEach(wine => frag.appendChild(renderTripCard(wine)));
+  const COLOR_ORDER = ["Red", "White", "Rosé", "Sparkling"];
+  const byColor = {};
+  unassigned.forEach(w => {
+    const c = w.color || "Red";
+    if (!byColor[c]) byColor[c] = [];
+    byColor[c].push(w);
+  });
+  // Sort each group by wine name, placeholders last
+  Object.values(byColor).forEach(arr => arr.sort((a, b) => {
+    if (a.isPlaceholder !== b.isPlaceholder) return a.isPlaceholder ? 1 : -1;
+    return (a.wine || "").localeCompare(b.wine || "");
+  }));
+
+  const colors = COLOR_ORDER.filter(c => byColor[c]);
+  colors.forEach(color => {
+    const group = byColor[color];
+    const bottleCount = group.reduce((s, w) => s + (parseInt(w.qty) || 1), 0);
+    const dot = colorDot(color);
+    const expanded = !!tripColorExpanded[color];
+
+    const sec = document.createElement("div");
+    sec.style.cssText = "margin-bottom:6px";
+
+    const hdr = html(`<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(0,0,0,0.08);cursor:pointer;user-select:none">
+      <div style="width:10px;height:10px;border-radius:3px;background:${dot};flex-shrink:0"></div>
+      <span style="font-family:'Cormorant Garamond',serif;font-size:15px;font-weight:700;color:var(--ink);flex:1">${color}</span>
+      <span style="font-size:12px;color:var(--brown-mid)">${bottleCount} bottle${bottleCount!==1?"s":""}</span>
+      <span style="font-size:11px;color:var(--brown-pale);margin-left:2px">${expanded?"▼":"▶"}</span>
+    </div>`);
+
+    const body = document.createElement("div");
+    body.style.display = expanded ? "block" : "none";
+    body.style.paddingTop = "6px";
+    if (expanded) group.forEach(w => body.appendChild(renderTripCard(w)));
+
+    hdr.onclick = () => {
+      tripColorExpanded[color] = !tripColorExpanded[color];
+      if (tripColorExpanded[color]) {
+        body.innerHTML = "";
+        group.forEach(w => body.appendChild(renderTripCard(w)));
+        body.style.display = "block";
+        hdr.querySelector("span:last-child").textContent = "▼";
+      } else {
+        body.style.display = "none";
+        hdr.querySelector("span:last-child").textContent = "▶";
+      }
+    };
+
+    sec.appendChild(hdr);
+    sec.appendChild(body);
+    frag.appendChild(sec);
+  });
+
   return frag;
 }
 
@@ -1599,10 +1707,35 @@ function renderTripCard(wine) {
         </div>
         ${wine.notes?`<div style="color:var(--brown-light);font-size:12px;font-style:italic;margin-top:7px">"${wine.notes}"</div>`:""}
       </div>
-      <div style="color:var(--brown-pale);font-size:18px;padding-left:8px;align-self:center">›</div>
+      <div class="trip-card-right" style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;padding-left:8px"></div>
     </div>
   </div>`);
-  card.onclick=e=>{ if(e.target.closest("button")) return; showEditWineModal(wine); };
+
+  const rightCol = card.querySelector('.trip-card-right');
+  const cbLabel = document.createElement('label');
+  cbLabel.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;';
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.checked = !!wine.bottleConfirmed;
+  cb.style.cssText = 'width:16px;height:16px;accent-color:var(--gold);cursor:pointer;';
+  cb.onclick = e => e.stopPropagation();
+  cb.onchange = () => { updateWine(wine.id, { bottleConfirmed: cb.checked }); wine.bottleConfirmed = cb.checked; };
+  const cbText = document.createElement('span');
+  cbText.textContent = 'Bottle';
+  cbText.style.cssText = 'color:var(--brown-mid);font-size:10px;white-space:nowrap;';
+  const cbText2 = document.createElement('span');
+  cbText2.textContent = 'Confirmed';
+  cbText2.style.cssText = 'color:var(--brown-mid);font-size:10px;white-space:nowrap;';
+  cbLabel.appendChild(cb);
+  cbLabel.appendChild(cbText);
+  cbLabel.appendChild(cbText2);
+  rightCol.appendChild(cbLabel);
+  const chevron = document.createElement('div');
+  chevron.textContent = '›';
+  chevron.style.cssText = 'color:var(--brown-pale);font-size:18px;margin-top:4px;';
+  rightCol.appendChild(chevron);
+
+  card.onclick=e=>{ if(e.target.closest("button")||e.target.closest("label")||e.target.type==="checkbox") return; showEditWineModal(wine); };
 
   const btns=html(`<div style="display:flex;gap:8px;margin-top:12px"></div>`);
   const assign=html(`<button class="btn-primary" style="flex:2">📍 Assign to Storage</button>`);
@@ -1724,7 +1857,7 @@ function filterWines(storedWines) {
   return storedWines.filter(w=>{
     if(findQuery && !`${w.winery} ${w.wine} ${w.vintage} ${w.varietal} ${w.region}`.toLowerCase().includes(findQuery.toLowerCase())) return false;
     if(findFilters.color    && w.color!==findFilters.color) return false;
-    if(findFilters.varietal && w.varietal!==findFilters.varietal) return false;
+    if(findFilters.varietal && !(w.varietal||"").split(",").map(v=>v.trim()).includes(findFilters.varietal)) return false;
     if(findFilters.region   && !w.region?.toLowerCase().includes(findFilters.region.toLowerCase())) return false;
     if(findFilters.vintageFrom && parseInt(w.vintage)<parseInt(findFilters.vintageFrom)) return false;
     if(findFilters.vintageTo   && parseInt(w.vintage)>parseInt(findFilters.vintageTo))   return false;
@@ -2589,18 +2722,7 @@ function renderAddWineModal() {
     });
     form.appendChild(row1);
 
-    // Varietal text input with datalist suggestions
-    { let dl=document.getElementById("varietal-suggestions");
-      if(!dl){ dl=document.createElement("datalist"); dl.id="varietal-suggestions"; document.body.appendChild(dl); }
-      dl.innerHTML="";
-      (allVarietals.length?allVarietals:VARIETAL_OPTIONS).forEach(v=>{ const o=document.createElement("option"); o.value=v; dl.appendChild(o); });
-    }
-    const varWrap=document.createElement("div");
-    varWrap.appendChild(html(`<div class="field-label">Varietal</div>`));
-    const varInp=document.createElement("input"); varInp.placeholder="e.g. Cabernet Sauvignon"; varInp.value=addWineForm.varietal;
-    varInp.setAttribute("list","varietal-suggestions");
-    varInp.oninput=e=>addWineForm.varietal=e.target.value;
-    varWrap.appendChild(varInp); form.appendChild(varWrap);
+    buildVarietalField(form, addWineForm);
 
     // Region
     const regWrap=document.createElement("div");
@@ -2750,18 +2872,7 @@ function renderAddWineModal() {
       w.appendChild(inp); row1.appendChild(w);
     });
     form.appendChild(row1);
-    // Varietal
-    { let dl=document.getElementById("varietal-suggestions");
-      if(!dl){ dl=document.createElement("datalist"); dl.id="varietal-suggestions"; document.body.appendChild(dl); }
-      dl.innerHTML="";
-      (allVarietals.length?allVarietals:VARIETAL_OPTIONS).forEach(v=>{ const o=document.createElement("option"); o.value=v; dl.appendChild(o); });
-    }
-    const varWrap=document.createElement("div");
-    varWrap.appendChild(html(`<div class="field-label">Varietal</div>`));
-    const varInp=document.createElement("input"); varInp.placeholder="e.g. Cabernet Sauvignon"; varInp.value=addWineForm.varietal;
-    varInp.setAttribute("list","varietal-suggestions");
-    varInp.oninput=e=>{ addWineForm.varietal=e.target.value; if(scanQueue[scanQueueIndex]) scanQueue[scanQueueIndex].varietal=e.target.value; };
-    varWrap.appendChild(varInp); form.appendChild(varWrap);
+    buildVarietalField(form, addWineForm, v => { if(scanQueue[scanQueueIndex]) scanQueue[scanQueueIndex].varietal = v; });
     // Region
     const regWrap=document.createElement("div");
     regWrap.appendChild(html(`<div class="field-label">Region / Appellation</div>`));
@@ -2875,10 +2986,14 @@ function renderAddWineModal() {
 // ── ASSIGN MODAL ─────────────────────────────────────────────────
 let assignLoc  = "winefridge";
 let assignSlot = null;
+let assignBottleIndex = 0;
+let assignSessionSlots = []; // {locId, slot} pairs saved in this session
 
 function showAssignModal(wine) {
   assignLoc  = allLocations["winefridge"] ? "winefridge" : Object.keys(allLocations)[0] || "winefridge";
   assignSlot = null;
+  assignBottleIndex = 0;
+  assignSessionSlots = [];
   renderAssignModal(wine);
 }
 
@@ -2889,8 +3004,17 @@ function renderAssignModal(wine) {
   // When returning a consumed bottle, require slot selection — no tap-outside dismiss
   if (!returnConsumedId) overlay.onclick=e=>{ if(e.target===overlay) root.innerHTML=""; };
   sheet.appendChild(html(`<div class="modal-handle"></div>`));
-  sheet.appendChild(html(`<div style="font-family:'Cormorant Garamond',serif;font-size:19px;font-weight:800;color:var(--ink);margin-bottom:2px">Assign to Storage</div>`));
-  sheet.appendChild(html(`<div style="color:var(--brown-light);font-size:13px;font-style:italic;margin-bottom:18px">${wine.wine} · ${wine.vintage||""}</div>`));
+  const assignQty = parseInt(wine.qty) || 1;
+  const multiBottle = assignQty > 1;
+  const assignTitle = multiBottle ? `Assign to Storage · Bottle ${assignBottleIndex+1} of ${assignQty}` : "Assign to Storage";
+  sheet.appendChild(html(`<div style="font-family:'Cormorant Garamond',serif;font-size:19px;font-weight:800;color:var(--ink);margin-bottom:2px">${assignTitle}</div>`));
+  sheet.appendChild(html(`<div style="color:var(--brown-light);font-size:13px;font-style:italic;margin-bottom:${multiBottle?8:18}px">${wine.wine} · ${wine.vintage||""}</div>`));
+  if (multiBottle && assignSessionSlots.length > 0) {
+    const placed = assignSessionSlots.map((as,i)=>`<span style="color:var(--brown-mid)">Bottle ${i+1}:</span> <span style="color:${allLocations[as.locId]?.color||"var(--gold)"};font-family:monospace;font-weight:700">${allLocations[as.locId]?.name||as.locId} · ${as.slot}</span>`).join("  ");
+    sheet.appendChild(html(`<div style="font-size:11px;margin-bottom:14px;padding:8px 10px;background:rgba(0,120,0,0.06);border:1px solid rgba(0,120,0,0.15);border-radius:8px;line-height:1.7">${placed}</div>`));
+  } else if (multiBottle) {
+    sheet.appendChild(html(`<div style="font-size:11px;color:var(--brown-pale);margin-bottom:14px">Assign a slot for each bottle</div>`));
+  }
 
   // Location picker
   const locRow=document.createElement("div"); locRow.style.cssText="display:flex;gap:7px;margin-bottom:18px;flex-wrap:wrap";
@@ -2927,25 +3051,31 @@ function renderAssignModal(wine) {
       grid.style.cssText=`display:grid;grid-template-columns:repeat(${colCount},1fr);gap:4px;margin-bottom:${rowCount>1?"4px":"0"}`;
       rowSlots.forEach(s=>{
         const wid   = locSlots[s];
-        const taken = wid && wid!==wine.id;
+        const savedHere = assignSessionSlots.some(as=>as.locId===assignLoc&&as.slot===s);
+        const taken = (wid && wid!==wine.id) || savedHere;
         const sel   = assignSlot===s;
         const lbl   = isCloset ? s.split("-").pop() : s;
         const btn   = document.createElement("button");
-        btn.style.cssText=`aspect-ratio:1;border-radius:5px;border:${sel?`2px solid ${loc.color}`:taken?"1px solid rgba(139,0,0,0.4)":"1px solid var(--border)"};background:${sel?loc.color+"22":taken?"rgba(139,0,0,0.15)":"var(--surface-3)"};color:${sel?loc.color:taken?"#8b0000":"var(--brown-pale)"};font-size:${taken?10:8}px;font-family:monospace;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0;transition:all 0.12s`;
-        btn.innerHTML=taken?`<div style="font-size:14px;line-height:1">🍷</div><div style="font-size:8px;line-height:1.2;margin-top:1px">${lbl}</div>`:lbl;
-        if(taken){
-          btn.onclick=()=>{
-            const takenWine=wines[wid];
-            showConsumedConfirm(takenWine,async()=>{
-              const entry={...takenWine,locId:assignLoc,slot:s,consumedAt:Date.now()};
-              await clearSlot(assignLoc,s);
-              await saveConsumed(entry);
-              assignSlot=s;
-              renderAssignModal(wine);
-            });
-          };
+        if (savedHere) {
+          btn.style.cssText=`aspect-ratio:1;border-radius:5px;border:1px solid rgba(0,140,0,0.45);background:rgba(0,140,0,0.12);color:#2a7a2a;font-size:8px;font-family:monospace;font-weight:700;cursor:default;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0`;
+          btn.innerHTML=`<div style="font-size:14px;line-height:1">✓</div><div style="font-size:8px;line-height:1.2;margin-top:1px">${lbl}</div>`;
         } else {
-          btn.onclick=()=>{ assignSlot=s; renderAssignModal(wine); };
+          btn.style.cssText=`aspect-ratio:1;border-radius:5px;border:${sel?`2px solid ${loc.color}`:taken?"1px solid rgba(139,0,0,0.4)":"1px solid var(--border)"};background:${sel?loc.color+"22":taken?"rgba(139,0,0,0.15)":"var(--surface-3)"};color:${sel?loc.color:taken?"#8b0000":"var(--brown-pale)"};font-size:${taken?10:8}px;font-family:monospace;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0;transition:all 0.12s`;
+          btn.innerHTML=taken?`<div style="font-size:14px;line-height:1">🍷</div><div style="font-size:8px;line-height:1.2;margin-top:1px">${lbl}</div>`:lbl;
+          if(taken){
+            btn.onclick=()=>{
+              const takenWine=wines[wid];
+              showConsumedConfirm(takenWine,async()=>{
+                const entry={...takenWine,locId:assignLoc,slot:s,consumedAt:Date.now()};
+                await clearSlot(assignLoc,s);
+                await saveConsumed(entry);
+                assignSlot=s;
+                renderAssignModal(wine);
+              });
+            };
+          } else {
+            btn.onclick=()=>{ assignSlot=s; renderAssignModal(wine); };
+          }
         }
         grid.appendChild(btn);
       });
@@ -2961,22 +3091,36 @@ function renderAssignModal(wine) {
     </div>`));
   }
 
-  const saveBtnLabel = assignSlot ? `Save to ${allLocations[assignLoc].name} · ${assignSlot}` : "Select a slot above";
+  const isLastBottle = assignBottleIndex + 1 >= assignQty;
+  const saveBtnLabel = assignSlot
+    ? (multiBottle && !isLastBottle ? `Save Bottle ${assignBottleIndex+1} · Next →` : `Save to ${allLocations[assignLoc].name} · ${assignSlot}`)
+    : "Select a slot above";
   const saveBtn=html(`<button class="${assignSlot?"btn-primary":"btn-ghost"}" style="${assignSlot?"":"cursor:not-allowed;opacity:0.5"}">${saveBtnLabel}</button>`);
   saveBtn.onclick=async()=>{
     if(!assignSlot) return;
-    // Clear any old slot for this wine
-    for(const lid of Object.keys(allLocations))
-      for(const [sl,wid] of Object.entries(slots[lid]||{}))
-        if(wid===wine.id) await clearSlot(lid,sl);
+    // Clear any old slots for this wine only on the first bottle of this session
+    if (assignBottleIndex === 0) {
+      for(const lid of Object.keys(allLocations))
+        for(const [sl,wid] of Object.entries(slots[lid]||{}))
+          if(wid===wine.id) await clearSlot(lid,sl);
+    }
     await saveSlot(assignLoc,assignSlot,wine.id);
+    assignSessionSlots.push({locId:assignLoc,slot:assignSlot});
     if(!wine.pairings) fetchPairingsForWine(wine);
     // If returning a consumed bottle, delete the consumed record now
     if (returnConsumedId) {
       await remove(ref(db, `consumed/${returnConsumedId}`));
       returnConsumedId = null;
     }
-    root.innerHTML="";
+    if (!isLastBottle) {
+      // Advance to next bottle
+      assignBottleIndex++;
+      assignSlot = null;
+      assignLoc = allLocations["winefridge"] ? "winefridge" : Object.keys(allLocations)[0] || "winefridge";
+      renderAssignModal(wine);
+    } else {
+      root.innerHTML="";
+    }
   };
   if (returnConsumedId) {
     const cancelBtn = html(`<button class="btn-ghost" style="margin-top:8px;width:100%">Cancel</button>`);
@@ -3348,18 +3492,7 @@ function renderEditWineModal(wine) {
   });
   form.appendChild(row1);
 
-  // Varietal
-  { let dl=document.getElementById("varietal-suggestions");
-    if(!dl){ dl=document.createElement("datalist"); dl.id="varietal-suggestions"; document.body.appendChild(dl); }
-    dl.innerHTML="";
-    (allVarietals.length?allVarietals:VARIETAL_OPTIONS).forEach(v=>{ const o=document.createElement("option"); o.value=v; dl.appendChild(o); });
-  }
-  const varWrap=document.createElement("div");
-  varWrap.appendChild(html(`<div class="field-label">Varietal</div>`));
-  const varInp=document.createElement("input"); varInp.placeholder="e.g. Cabernet Sauvignon"; varInp.value=editWineForm.varietal;
-  varInp.setAttribute("list","varietal-suggestions");
-  varInp.oninput=e=>editWineForm.varietal=e.target.value;
-  varWrap.appendChild(varInp); form.appendChild(varWrap);
+  buildVarietalField(form, editWineForm);
 
   // Region
   const regWrap=document.createElement("div");
@@ -3511,7 +3644,7 @@ function showSlotDetail(locId,slot,wine){
 function showSettings() {
   if (currentUserRole !== "admin") return;
   if (document.getElementById("settings-overlay")) return;
-  settingsExpanded = { locations: false, varietals: false, bulk: false, deleteWine: false, users: false, trips: false };
+  settingsExpanded = { locations: false, varietals: false, bulk: false, deleteWine: false, users: false, trips: false, orphanWines: false };
   const overlay = document.createElement("div");
   overlay.id = "settings-overlay";
   overlay.className = "settings-overlay";
@@ -3558,6 +3691,7 @@ function renderSettingsBody() {
   body.appendChild(renderSettingsSectionLocations());
   body.appendChild(renderSettingsSectionVarietals());
   body.appendChild(renderSettingsSectionTrips());
+  body.appendChild(renderSettingsSectionOrphanWines());
   body.appendChild(renderSettingsSectionDeleteWine());
   body.appendChild(renderSettingsSectionBulkRefresh());
 }
@@ -3800,6 +3934,141 @@ function renderSettingsSectionTrips() {
     };
     form.appendChild(createBtn);
     sec.appendChild(form);
+  });
+}
+
+function renderSettingsSectionOrphanWines() {
+  return makeSettingsSection("orphanWines", "Orphan Wines", sec => {
+    // Wines whose tripId points to a deleted trip
+    const tripOrphans = Object.values(wines).filter(w => w.tripId && !trips[w.tripId]);
+
+    // Wines stuck in a slot name that no longer exists in the location's current grid
+    const slotOrphans = [];
+    for (const [locId, slotMap] of Object.entries(slots)) {
+      const loc = allLocations[locId];
+      if (!loc) continue;
+      const validSlots = new Set(loc.slots || []);
+      for (const [slotName, wineId] of Object.entries(slotMap || {})) {
+        if (wineId && !validSlots.has(slotName) && wines[wineId]) {
+          slotOrphans.push({ wine: wines[wineId], locId, slotName, locName: loc.name });
+        }
+      }
+    }
+
+    if (tripOrphans.length === 0 && slotOrphans.length === 0) {
+      sec.appendChild(html(`<div style="color:var(--brown-pale);font-size:13px">No orphan wines found.</div>`));
+      return;
+    }
+
+    // --- Slot orphans: stuck in a removed grid slot ---
+    if (slotOrphans.length > 0) {
+      sec.appendChild(html(`<div style="font-size:12px;font-weight:700;color:var(--brown-mid);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px">Stuck in removed slots</div>`));
+      sec.appendChild(html(`<div style="font-size:12px;color:var(--brown-mid);margin-bottom:10px">${slotOrphans.length} wine${slotOrphans.length!==1?" are":" is"} assigned to a slot that no longer exists — invisible in the Cellar and excluded from the Trip tab.</div>`));
+
+      const slotList = document.createElement("div");
+      slotList.style.cssText = "margin-bottom:10px";
+      slotOrphans.forEach(({ wine: w, locId, slotName, locName }) => {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border-2);gap:8px";
+        const label = [w.vintage, w.winery, w.wine].filter(Boolean).join(" ");
+        const info = html(`<div style="min-width:0">
+          <div style="font-size:13px;font-weight:600;color:var(--ink)">${label}</div>
+          <div style="font-size:11px;color:var(--brown-pale)">${locName} · ${slotName}</div>
+        </div>`);
+        const freeBtn = document.createElement("button");
+        freeBtn.className = "btn-sm";
+        freeBtn.style.cssText = "flex-shrink:0";
+        freeBtn.textContent = "Return to list";
+        freeBtn.onclick = async () => {
+          freeBtn.disabled = true;
+          await clearSlot(locId, slotName);
+        };
+        row.appendChild(info);
+        row.appendChild(freeBtn);
+        slotList.appendChild(row);
+      });
+      sec.appendChild(slotList);
+
+      const freeAllBtn = document.createElement("button");
+      freeAllBtn.className = "btn-sm primary";
+      freeAllBtn.style.cssText = "width:100%;margin-bottom:18px";
+      freeAllBtn.textContent = `Return all ${slotOrphans.length} to trip list`;
+      freeAllBtn.onclick = async () => {
+        freeAllBtn.disabled = true;
+        freeAllBtn.textContent = "Clearing…";
+        await Promise.all(slotOrphans.map(({ locId, slotName }) => clearSlot(locId, slotName)));
+      };
+      sec.appendChild(freeAllBtn);
+    }
+
+    // --- Trip orphans: broken tripId ---
+    if (tripOrphans.length > 0) {
+      if (slotOrphans.length > 0) {
+        sec.appendChild(html(`<div style="font-size:12px;font-weight:700;color:var(--brown-mid);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px">Referencing deleted trips</div>`));
+      }
+      sec.appendChild(html(`<div style="font-size:12px;color:var(--brown-mid);margin-bottom:12px">${tripOrphans.length} wine${tripOrphans.length!==1?"s":""} reference a deleted trip. Reassign them or clear the association.</div>`));
+
+      const stored = storedWineIds();
+      const consumedIds = new Set(Object.keys(consumed));
+      const list = document.createElement("div");
+      list.style.cssText = "margin-bottom:8px";
+
+      tripOrphans.sort((a,b) => (a.winery||"").localeCompare(b.winery||"")).forEach(w => {
+        const row = document.createElement("div");
+        row.style.cssText = "padding:10px 0;border-bottom:1px solid var(--border-2)";
+
+        let status = "Unstored";
+        if (consumedIds.has(w.id)) {
+          status = "Consumed";
+        } else if (stored.has(w.id)) {
+          outer: for (const [locId, slotMap] of Object.entries(slots)) {
+            for (const wId of Object.values(slotMap || {})) {
+              if (wId === w.id) {
+                const loc = allLocations[locId];
+                status = `Stored · ${loc ? loc.name : locId}`;
+                break outer;
+              }
+            }
+          }
+        }
+
+        const label = [w.vintage, w.winery, w.wine].filter(Boolean).join(" ");
+        row.appendChild(html(`<div style="font-size:13px;font-weight:600;color:var(--ink);margin-bottom:2px">${label}</div>`));
+        row.appendChild(html(`<div style="font-size:11px;color:var(--brown-pale);margin-bottom:8px">${status}</div>`));
+
+        const actionRow = document.createElement("div");
+        actionRow.style.cssText = "display:flex;align-items:center;gap:8px";
+
+        const tripSel = document.createElement("select");
+        tripSel.style.cssText = "flex:1;font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2);color:var(--ink)";
+        const blankOpt = document.createElement("option");
+        blankOpt.value = "";
+        blankOpt.textContent = "— No Trip —";
+        tripSel.appendChild(blankOpt);
+        Object.values(trips).sort((a,b) => b.createdAt - a.createdAt).forEach(t => {
+          const o = document.createElement("option");
+          o.value = t.id;
+          o.textContent = t.name;
+          tripSel.appendChild(o);
+        });
+
+        const assignBtn = document.createElement("button");
+        assignBtn.className = "btn-sm primary";
+        assignBtn.textContent = "Save";
+        assignBtn.onclick = async () => {
+          assignBtn.disabled = true;
+          await updateWine(w.id, { tripId: tripSel.value || null });
+          assignBtn.disabled = false;
+        };
+
+        actionRow.appendChild(tripSel);
+        actionRow.appendChild(assignBtn);
+        row.appendChild(actionRow);
+        list.appendChild(row);
+      });
+
+      sec.appendChild(list);
+    }
   });
 }
 
@@ -4299,10 +4568,6 @@ function _showLocationModal(existingLoc) {
         return;
       }
       const newSlots=generateCustomSlots(rows2,cols2);
-      const changed=JSON.stringify(newSlots)!==JSON.stringify(existingLoc?.slots);
-      if(changed&&hasOccupiedSlots()){
-        if(!confirm("Changing the grid layout will orphan existing slot assignments. Wines will not be deleted. Continue?"))return;
-      }
       locObj={
         ...baseFields, rows:rows2, cols:cols2,
         slots:newSlots,
@@ -4326,15 +4591,27 @@ function _showLocationModal(existingLoc) {
         allCols.filter(v=>v===b).length-allCols.filter(v=>v===a).length
       )[0]||defaultCols;
       const newSlots=generateSectionSlots(sectionsWithLabels,defaultCols);
-      const changed=JSON.stringify(newSlots)!==JSON.stringify(existingLoc?.slots);
-      if(changed&&hasOccupiedSlots()){
-        if(!confirm("Changing the grid layout will orphan existing slot assignments. Wines will not be deleted. Continue?"))return;
-      }
       locObj={...baseFields, slots:newSlots, grid:{sections:sectionsWithLabels,cols:gridCols}};
       // No top-level rows/cols — ensures Firebase loading uses stored data directly
     }
+    // Find occupied slots that no longer exist in the new layout
+    const newSlotSet = new Set(locObj.slots);
+    const displaced = existingLoc
+      ? Object.entries(slots[existingLoc.id] || {}).filter(([s, wid]) => wid && !newSlotSet.has(s))
+      : [];
+    if (displaced.length > 0) {
+      const names = displaced.map(([, wid]) => {
+        const w = wines[wid];
+        return w ? [w.vintage, w.winery, w.wine].filter(Boolean).join(" ") : wid;
+      });
+      const preview = names.slice(0, 5).join(", ") + (names.length > 5 ? ` and ${names.length - 5} more` : "");
+      if (!confirm(`${displaced.length} wine${displaced.length > 1 ? "s" : ""} will be moved back to the trip list: ${preview}. Continue?`)) return;
+    }
     save.disabled=true; save.textContent="Saving…";
     await saveLocation(locObj);
+    if (displaced.length > 0) {
+      await Promise.all(displaced.map(([slotName]) => clearSlot(existingLoc.id, slotName)));
+    }
     close();
   };
   actions.appendChild(cancel); actions.appendChild(save);
