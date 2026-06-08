@@ -600,13 +600,11 @@ function generateCustomSlots(rows, cols) {
 
 function generateSectionSlots(sectionDefs, defaultCols) {
   const s = [];
-  let num = 1;
   for (const sec of sectionDefs) {
     const cols = sec.cols || defaultCols;
     for (let r = 1; r <= sec.rows; r++) {
       for (let c = 1; c <= cols; c++) {
-        s.push(`${sec.id}-R${r}-${String(num).padStart(2, "0")}`);
-        num++;
+        s.push(`${sec.id}-R${r}-${String(c).padStart(2, "0")}`);
       }
     }
   }
@@ -915,6 +913,56 @@ async function revertClosetToSequentialSlots() {
 
   updates["config/locations/closet/slots"] = restoredSlots;
   updates["config/migrations/closetRevertToSequential"] = true;
+
+  await update(ref(db), updates);
+}
+
+async function migrateWineFridgeToPerSectionSlots() {
+  const flagSnap = await get(ref(db, "config/migrations/wineFridgePerSection"));
+  if (flagSnap.val()) return;
+
+  const locSnap = await get(ref(db, "config/locations/winefridge"));
+  const loc = locSnap.val();
+  if (!loc) { await set(ref(db,"config/migrations/wineFridgePerSection"),true); return; }
+
+  const sectionDefs = (loc.grid && loc.grid.sections) || [];
+  const defaultCols = (loc.grid && loc.grid.cols) || 7;
+
+  // Build sequential→per-section mapping for object-sections format.
+  // Compact string-sections (A1 format) won't have matching keys so this is a no-op for them.
+  let seqStart = 1;
+  const keyMap = {};
+  const newSlots = [];
+  for (const sec of sectionDefs) {
+    const secId = typeof sec === "object" ? sec.id : sec;
+    const rows  = typeof sec === "object" ? (sec.rows || 1) : 1;
+    const cols  = (typeof sec === "object" && sec.cols) ? sec.cols : defaultCols;
+    for (let r = 1; r <= rows; r++) {
+      for (let c = 1; c <= cols; c++) {
+        const seqNum = seqStart + (r - 1) * cols + (c - 1);
+        const oldKey = `${secId}-R${r}-${String(seqNum).padStart(2, "0")}`;
+        const newKey = `${secId}-R${r}-${String(c).padStart(2, "0")}`;
+        if (oldKey !== newKey) keyMap[oldKey] = newKey;
+        newSlots.push(newKey);
+      }
+    }
+    seqStart += rows * cols;
+  }
+
+  const slotSnap = await get(ref(db, "slots/winefridge"));
+  const currentSlots = slotSnap.val() || {};
+
+  const updates = {};
+  for (const [oldKey, newKey] of Object.entries(keyMap)) {
+    const wineId = currentSlots[oldKey];
+    if (wineId) {
+      updates[`slots/winefridge/${newKey}`] = wineId;
+      updates[`slots/winefridge/${oldKey}`] = null;
+    }
+  }
+
+  updates["config/locations/winefridge/slots"] = newSlots;
+  updates["config/migrations/wineFridgePerSection"] = true;
 
   await update(ref(db), updates);
 }
@@ -1356,6 +1404,7 @@ function initAuth() {
 async function handleAuthUser(user) {
   await seedUsersIfEmpty();
   await revertClosetToSequentialSlots();
+  await migrateWineFridgeToPerSectionSlots();
   const emailKey = emailToKey(user.email);
   const snap = await get(ref(db, `config/users/${emailKey}`));
   if (!snap.exists()) {
@@ -1869,7 +1918,7 @@ function renderCellarContent() {
                   /^R\d+$/.test(secId) ? `Row ${secId.replace("R","")}` :
                   `Section ${secId}`;
     const colCount = secDef.cols || (loc.grid.sectionCols ? loc.grid.sectionCols[secId] : loc.grid.cols);
-    const secSlots = (loc.slots||[]).filter(s=>s.startsWith(secId));
+    const secSlots = (loc.slots||[]).filter(s=>isCloset ? s.startsWith(secId+"-") : s.startsWith(secId));
 
     const secDiv = document.createElement("div");
     secDiv.style.marginBottom="16px";
