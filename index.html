@@ -4054,35 +4054,43 @@ function renderSettingsSectionTrips() {
 
 function renderSettingsSectionWineFridgeFix() {
   return makeSettingsSection("wineFridgeFix", "Section Slot Fix", sec => {
-    sec.appendChild(html(`<div style="font-size:13px;color:var(--brown-mid);margin-bottom:10px">Re-numbers each section starting from 01 instead of continuing the count from the previous section. Applies to all section-based locations. Safe to run multiple times.</div>`));
-    const btn = html(`<button class="btn-ghost" style="width:100%">Run Fix Now</button>`);
+    sec.appendChild(html(`<div style="font-size:13px;color:var(--brown-mid);margin-bottom:10px">Re-numbers slots in each section starting from 01 instead of continuing the count across sections. Select a location below. Safe to run multiple times.</div>`));
+
+    const targets = Object.values(allLocations).filter(l =>
+      !l.isBuiltin && l.grid && l.grid.sections && l.grid.sections.length > 0 && typeof l.grid.sections[0] === "object"
+    );
+
     const status = document.createElement("div");
     status.style.cssText = "font-size:13px;margin-top:8px;color:var(--brown-mid)";
-    btn.onclick = async () => {
-      btn.disabled = true; btn.textContent = "Running…";
-      try {
-        const targets = Object.values(allLocations).filter(l =>
-          !l.isBuiltin && l.grid && l.grid.sections && l.grid.sections.length > 0 && typeof l.grid.sections[0] === "object"
-        );
-        if (!targets.length) {
-          status.textContent = "No section-based locations found.";
-          btn.textContent = "Run Fix Now"; btn.disabled = false;
-          return;
+
+    if (!targets.length) {
+      sec.appendChild(html(`<div style="font-size:13px;color:var(--brown-mid)">No eligible locations found.</div>`));
+      return;
+    }
+
+    targets.forEach(loc => {
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)";
+      const label = html(`<span style="font-size:14px">${loc.icon || "📦"} ${loc.name}</span>`);
+      const btn = html(`<button class="btn-ghost" style="padding:6px 14px;font-size:13px">Fix</button>`);
+      btn.onclick = async () => {
+        btn.disabled = true; btn.textContent = "Running…";
+        status.style.color = "var(--brown-mid)"; status.textContent = "";
+        try {
+          const msg = await runPerSectionFix(loc.id);
+          status.style.color = "var(--green,#3a7d44)";
+          status.textContent = msg;
+          btn.textContent = "Done ✓";
+        } catch(e) {
+          status.style.color = "red";
+          status.textContent = "Error: " + e.message;
+          btn.disabled = false; btn.textContent = "Fix";
         }
-        const results = [];
-        for (const l of targets) {
-          results.push(await runPerSectionFix(l.id));
-        }
-        status.style.color = "var(--green,#3a7d44)";
-        status.textContent = results.join(" | ");
-        btn.textContent = "Done ✓";
-      } catch(e) {
-        status.style.color = "red";
-        status.textContent = "Error: " + e.message;
-        btn.disabled = false; btn.textContent = "Run Fix Now";
-      }
-    };
-    sec.appendChild(btn);
+      };
+      row.appendChild(label); row.appendChild(btn);
+      sec.appendChild(row);
+    });
+
     sec.appendChild(status);
   });
 }
