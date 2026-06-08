@@ -558,7 +558,7 @@ let allVarietals = [];   // from /config/varietals
 let bulkRefreshRunning  = false;
 let bulkRefreshCancel   = false;
 let bulkRefreshProgress = { done:0, total:0, errors:0, phase:"", currentName:"" };
-let settingsExpanded    = { locations: false, varietals: false, bulk: false, deleteWine: false, users: false, trips: false };
+let settingsExpanded    = { locations: false, varietals: false, bulk: false, deleteWine: false, users: false, trips: false, orphanWines: false };
 let tripColorExpanded   = {};
 
 // ── Locations ────────────────────────────────────────────────────
@@ -3644,7 +3644,7 @@ function showSlotDetail(locId,slot,wine){
 function showSettings() {
   if (currentUserRole !== "admin") return;
   if (document.getElementById("settings-overlay")) return;
-  settingsExpanded = { locations: false, varietals: false, bulk: false, deleteWine: false, users: false, trips: false };
+  settingsExpanded = { locations: false, varietals: false, bulk: false, deleteWine: false, users: false, trips: false, orphanWines: false };
   const overlay = document.createElement("div");
   overlay.id = "settings-overlay";
   overlay.className = "settings-overlay";
@@ -3691,6 +3691,7 @@ function renderSettingsBody() {
   body.appendChild(renderSettingsSectionLocations());
   body.appendChild(renderSettingsSectionVarietals());
   body.appendChild(renderSettingsSectionTrips());
+  body.appendChild(renderSettingsSectionOrphanWines());
   body.appendChild(renderSettingsSectionDeleteWine());
   body.appendChild(renderSettingsSectionBulkRefresh());
 }
@@ -3933,6 +3934,81 @@ function renderSettingsSectionTrips() {
     };
     form.appendChild(createBtn);
     sec.appendChild(form);
+  });
+}
+
+function renderSettingsSectionOrphanWines() {
+  return makeSettingsSection("orphanWines", "Orphan Wines", sec => {
+    const orphans = Object.values(wines).filter(w => w.tripId && !trips[w.tripId]);
+
+    if (orphans.length === 0) {
+      sec.appendChild(html(`<div style="color:var(--brown-pale);font-size:13px">No orphan wines — all wines with a trip reference point to an existing trip.</div>`));
+      return;
+    }
+
+    const stored = storedWineIds();
+    const consumedIds = new Set(Object.keys(consumed));
+
+    sec.appendChild(html(`<div style="font-size:12px;color:var(--brown-mid);margin-bottom:12px">${orphans.length} wine${orphans.length!==1?"s":""} reference a deleted trip. Reassign them to an existing trip or clear the association.</div>`));
+
+    const list = document.createElement("div");
+    list.style.cssText = "margin-bottom:8px";
+
+    orphans.sort((a,b) => (a.winery||"").localeCompare(b.winery||"")).forEach(w => {
+      const row = document.createElement("div");
+      row.style.cssText = "padding:10px 0;border-bottom:1px solid var(--border-2)";
+
+      let status = "Unstored";
+      if (consumedIds.has(w.id)) {
+        status = "Consumed";
+      } else if (stored.has(w.id)) {
+        outer: for (const [locId, slotMap] of Object.entries(slots)) {
+          for (const wId of Object.values(slotMap || {})) {
+            if (wId === w.id) {
+              const loc = allLocations[locId];
+              status = `Stored · ${loc ? loc.name : locId}`;
+              break outer;
+            }
+          }
+        }
+      }
+
+      const label = [w.vintage, w.winery, w.wine].filter(Boolean).join(" ");
+      row.appendChild(html(`<div style="font-size:13px;font-weight:600;color:var(--ink);margin-bottom:2px">${label}</div>`));
+      row.appendChild(html(`<div style="font-size:11px;color:var(--brown-pale);margin-bottom:8px">${status}</div>`));
+
+      const actionRow = document.createElement("div");
+      actionRow.style.cssText = "display:flex;align-items:center;gap:8px";
+
+      const tripSel = document.createElement("select");
+      tripSel.style.cssText = "flex:1;font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2);color:var(--ink)";
+      const blankOpt = document.createElement("option");
+      blankOpt.value = "";
+      blankOpt.textContent = "— No Trip —";
+      tripSel.appendChild(blankOpt);
+      Object.values(trips).sort((a,b) => b.createdAt - a.createdAt).forEach(t => {
+        const o = document.createElement("option");
+        o.value = t.id;
+        o.textContent = t.name;
+        tripSel.appendChild(o);
+      });
+
+      const assignBtn = document.createElement("button");
+      assignBtn.className = "btn-sm primary";
+      assignBtn.textContent = "Save";
+      assignBtn.onclick = async () => {
+        assignBtn.disabled = true;
+        await updateWine(w.id, { tripId: tripSel.value || null });
+        assignBtn.disabled = false;
+      };
+
+      actionRow.appendChild(tripSel);
+      actionRow.appendChild(assignBtn);
+      row.appendChild(actionRow);
+      list.appendChild(row);
+    });
+
+    sec.appendChild(list);
   });
 }
 
