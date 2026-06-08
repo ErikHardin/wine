@@ -917,19 +917,14 @@ async function revertClosetToSequentialSlots() {
   await update(ref(db), updates);
 }
 
-async function migrateWineFridgeToPerSectionSlots() {
-  const flagSnap = await get(ref(db, "config/migrations/wineFridgePerSection"));
-  if (flagSnap.val()) return;
-
+async function runWineFridgePerSectionFix() {
   const locSnap = await get(ref(db, "config/locations/winefridge"));
   const loc = locSnap.val();
-  if (!loc) { await set(ref(db,"config/migrations/wineFridgePerSection"),true); return; }
+  if (!loc || !loc.grid || !loc.grid.sections) return "No wine fridge config found.";
 
-  const sectionDefs = (loc.grid && loc.grid.sections) || [];
-  const defaultCols = (loc.grid && loc.grid.cols) || 7;
+  const sectionDefs = loc.grid.sections;
+  const defaultCols = loc.grid.cols || 7;
 
-  // Build sequential→per-section mapping for object-sections format.
-  // Compact string-sections (A1 format) won't have matching keys so this is a no-op for them.
   let seqStart = 1;
   const keyMap = {};
   const newSlots = [];
@@ -953,18 +948,30 @@ async function migrateWineFridgeToPerSectionSlots() {
   const currentSlots = slotSnap.val() || {};
 
   const updates = {};
+  let moved = 0;
   for (const [oldKey, newKey] of Object.entries(keyMap)) {
     const wineId = currentSlots[oldKey];
     if (wineId) {
       updates[`slots/winefridge/${newKey}`] = wineId;
       updates[`slots/winefridge/${oldKey}`] = null;
+      moved++;
     }
   }
-
   updates["config/locations/winefridge/slots"] = newSlots;
-  updates["config/migrations/wineFridgePerSection"] = true;
+  updates["config/migrations/wineFridgePerSectionV2"] = true;
 
   await update(ref(db), updates);
+  return `Done — ${moved} wine${moved===1?"":"s"} remapped, ${newSlots.length} slots updated.`;
+}
+
+async function migrateWineFridgeToPerSectionSlots() {
+  const flagSnap = await get(ref(db, "config/migrations/wineFridgePerSectionV2"));
+  if (flagSnap.val()) return;
+  try {
+    await runWineFridgePerSectionFix();
+  } catch(e) {
+    console.error("Wine fridge migration failed:", e);
+  }
 }
 
 async function seedConfigIfEmpty() {
@@ -3791,6 +3798,7 @@ function renderSettingsBody() {
   body.appendChild(renderSettingsSectionVarietals());
   body.appendChild(renderSettingsSectionTrips());
   body.appendChild(renderSettingsSectionOrphanWines());
+  body.appendChild(renderSettingsSectionWineFridgeFix());
   body.appendChild(renderSettingsSectionDeleteWine());
   body.appendChild(renderSettingsSectionBulkRefresh());
 }
@@ -4033,6 +4041,30 @@ function renderSettingsSectionTrips() {
     };
     form.appendChild(createBtn);
     sec.appendChild(form);
+  });
+}
+
+function renderSettingsSectionWineFridgeFix() {
+  return makeSettingsSection("wineFridgeFix", "Wine Fridge Slot Fix", sec => {
+    sec.appendChild(html(`<div style="font-size:13px;color:var(--brown-mid);margin-bottom:10px">Re-numbers each wine fridge section starting from 01 instead of continuing the count from the previous section. Safe to run multiple times.</div>`));
+    const btn = html(`<button class="btn-ghost" style="width:100%">Run Fix Now</button>`);
+    const status = document.createElement("div");
+    status.style.cssText = "font-size:13px;margin-top:8px;color:var(--brown-mid)";
+    btn.onclick = async () => {
+      btn.disabled = true; btn.textContent = "Running…";
+      try {
+        const msg = await runWineFridgePerSectionFix();
+        status.style.color = "var(--green,#3a7d44)";
+        status.textContent = msg;
+        btn.textContent = "Done ✓";
+      } catch(e) {
+        status.style.color = "red";
+        status.textContent = "Error: " + e.message;
+        btn.disabled = false; btn.textContent = "Run Fix Now";
+      }
+    };
+    sec.appendChild(btn);
+    sec.appendChild(status);
   });
 }
 
