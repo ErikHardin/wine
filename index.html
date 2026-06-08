@@ -4439,14 +4439,19 @@ function _showLocationModal(existingLoc) {
     return { rows:maxRow, cols:maxCol, undetectable: !anyMatch && (loc?.slots?.length>0) };
   };
 
-  const hasSections = !!(existingLoc?.grid?.sections?.length && typeof existingLoc.grid.sections[0]==="object");
+  const hasObjectSections = !!(existingLoc?.grid?.sections?.length && typeof existingLoc.grid.sections[0]==="object");
+  // Compact format: string sections like wine fridge (["A","B","C"...] + sectionCols), slots are "A1","A7"
+  const isCompact = !!(existingLoc?.grid?.sections?.length && typeof existingLoc.grid.sections[0]==="string");
+  const hasSections = hasObjectSections || isCompact;
   let currentMode = hasSections ? "sections" : "simple";
 
   // Sections state (mutable, shared between renders)
-  // Each entry: {rows, cols} — cols can differ per section
-  let sectionDefs = hasSections
-    ? existingLoc.grid.sections.map((s,i)=>({rows:s.rows, cols:s.cols||existingLoc.grid.cols||8, label:s.label||""}))
-    : [{rows:2, cols:8, label:""}];
+  // Each entry: {id, rows, cols, label} — id preserved for compact format
+  let sectionDefs = hasObjectSections
+    ? existingLoc.grid.sections.map((s,i)=>({id:`S${i+1}`, rows:s.rows, cols:s.cols||existingLoc.grid.cols||8, label:s.label||""}))
+    : isCompact
+    ? existingLoc.grid.sections.map(s=>({id:s, rows:1, cols:existingLoc.grid.sectionCols?.[s]||existingLoc.grid.cols||8, label:""}))
+    : [{id:"S1", rows:2, cols:8, label:""}];
   let sectionsColsVal = hasSections ? (existingLoc.grid.cols||8) : 8; // default for new sections
 
   function hasOccupiedSlots() {
@@ -4537,17 +4542,26 @@ function _showLocationModal(existingLoc) {
         sectionDefs.forEach((sec,i)=>{
           const row=document.createElement("div");
           row.style.cssText="display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--surface-2,#f0e8d8);border-radius:8px;border:1px solid var(--border)";
-          const labelInp=document.createElement("input");
-          labelInp.value=sec.label||""; labelInp.placeholder=`Section ${i+1}`;
-          labelInp.style.cssText="flex:1;font-size:13px;color:var(--ink);font-weight:600;min-width:0;border:none;background:transparent;padding:2px 0;outline:none";
-          labelInp.oninput=()=>{ sectionDefs[i].label=labelInp.value; };
-          const rowsLabel=document.createElement("span");
-          rowsLabel.textContent="R";
-          rowsLabel.style.cssText="font-size:12px;color:var(--brown-mid);white-space:nowrap";
-          const rowsInpS=document.createElement("input");
-          rowsInpS.inputMode="numeric"; rowsInpS.value=sec.rows||1;
-          rowsInpS.style.cssText="width:44px;text-align:center;padding:6px";
-          rowsInpS.oninput=()=>{ sectionDefs[i].rows=Math.max(1,parseInt(rowsInpS.value)||1); updateSectionsPreview(); };
+          if (isCompact) {
+            // Compact format: show letter ID as a badge, no label or rows input
+            const idBadge=document.createElement("span");
+            idBadge.textContent=sec.id;
+            idBadge.style.cssText="flex:1;font-size:15px;font-weight:700;color:var(--ink)";
+            row.appendChild(idBadge);
+          } else {
+            const labelInp=document.createElement("input");
+            labelInp.value=sec.label||""; labelInp.placeholder=`Section ${i+1}`;
+            labelInp.style.cssText="flex:1;font-size:13px;color:var(--ink);font-weight:600;min-width:0;border:none;background:transparent;padding:2px 0;outline:none";
+            labelInp.oninput=()=>{ sectionDefs[i].label=labelInp.value; };
+            const rowsLabel=document.createElement("span");
+            rowsLabel.textContent="R";
+            rowsLabel.style.cssText="font-size:12px;color:var(--brown-mid);white-space:nowrap";
+            const rowsInpS=document.createElement("input");
+            rowsInpS.inputMode="numeric"; rowsInpS.value=sec.rows||1;
+            rowsInpS.style.cssText="width:44px;text-align:center;padding:6px";
+            rowsInpS.oninput=()=>{ sectionDefs[i].rows=Math.max(1,parseInt(rowsInpS.value)||1); updateSectionsPreview(); };
+            row.appendChild(labelInp); row.appendChild(rowsLabel); row.appendChild(rowsInpS);
+          }
           const colsLabel=document.createElement("span");
           colsLabel.textContent="C";
           colsLabel.style.cssText="font-size:12px;color:var(--brown-mid);white-space:nowrap";
@@ -4562,7 +4576,6 @@ function _showLocationModal(existingLoc) {
             if(sectionDefs.length<=1){alert("At least one section is required.");return;}
             maybeWarnDataLoss(()=>{ sectionDefs.splice(i,1); rebuildSecList(); updateSectionsPreview(); });
           };
-          row.appendChild(labelInp); row.appendChild(rowsLabel); row.appendChild(rowsInpS);
           row.appendChild(colsLabel); row.appendChild(colsInpS); row.appendChild(delBtn);
           secList.appendChild(row);
         });
@@ -4571,7 +4584,15 @@ function _showLocationModal(existingLoc) {
       gridArea.appendChild(secList);
 
       const addSecBtn=html(`<button type="button" class="btn-sm" style="margin-top:4px;width:100%">＋ Add Section</button>`);
-      addSecBtn.onclick=()=>{ sectionDefs.push({rows:1,cols:sectionsColsVal||8,label:""}); rebuildSecList(); updateSectionsPreview(); };
+      addSecBtn.onclick=()=>{
+        if (isCompact) {
+          const maxCode=Math.max(...sectionDefs.map(s=>s.id.charCodeAt(0)), 64);
+          sectionDefs.push({id:String.fromCharCode(maxCode+1), rows:1, cols:sectionsColsVal||8, label:""});
+        } else {
+          sectionDefs.push({id:`S${sectionDefs.length+1}`, rows:1, cols:sectionsColsVal||8, label:""});
+        }
+        rebuildSecList(); updateSectionsPreview();
+      };
       gridArea.appendChild(addSecBtn);
 
       const secColsWrap=document.createElement("div"); secColsWrap.style.cssText="display:flex;align-items:center;gap:10px;margin-top:4px";
@@ -4626,22 +4647,35 @@ function _showLocationModal(existingLoc) {
     } else {
       if(!sectionDefs.length){alert("Add at least one section.");return;}
       const defaultCols=sectionsColsVal||8;
-      let runningStart=1;
-      const sectionsWithLabels=sectionDefs.map((sec,i)=>{
-        const rows2=Math.max(1,sec.rows||1);
-        const cols2=Math.max(1,sec.cols||defaultCols);
-        const count=rows2*cols2;
-        const label=sec.label?.trim()||`Section ${i+1} · Slots ${runningStart}–${runningStart+count-1}`;
-        runningStart+=count;
-        return{id:`S${i+1}`,rows:rows2,cols:cols2,label};
-      });
-      // grid.cols = most common column count (used as fallback in render)
-      const allCols=sectionsWithLabels.map(s=>s.cols);
-      const gridCols=allCols.sort((a,b)=>
-        allCols.filter(v=>v===b).length-allCols.filter(v=>v===a).length
-      )[0]||defaultCols;
-      const newSlots=generateSectionSlots(sectionsWithLabels,defaultCols);
-      locObj={...baseFields, slots:newSlots, grid:{sections:sectionsWithLabels,cols:gridCols}};
+      if (isCompact) {
+        // Compact format (e.g. wine fridge): slots are "{letter}{col}", sections stored as string array
+        const newSlots=[], sectionColsMap={}, sectionIds=[];
+        for (const sec of sectionDefs) {
+          const cols2=Math.max(1,sec.cols||defaultCols);
+          sectionColsMap[sec.id]=cols2; sectionIds.push(sec.id);
+          for (let c=1;c<=cols2;c++) newSlots.push(`${sec.id}${c}`);
+        }
+        const colCounts=Object.values(sectionColsMap);
+        const gridCols=colCounts.sort((a,b)=>colCounts.filter(v=>v===b).length-colCounts.filter(v=>v===a).length)[0]||defaultCols;
+        locObj={...baseFields, slots:newSlots, grid:{sections:sectionIds, cols:gridCols, sectionCols:sectionColsMap}};
+      } else {
+        let runningStart=1;
+        const sectionsWithLabels=sectionDefs.map((sec,i)=>{
+          const rows2=Math.max(1,sec.rows||1);
+          const cols2=Math.max(1,sec.cols||defaultCols);
+          const count=rows2*cols2;
+          const label=sec.label?.trim()||`Section ${i+1} · Slots ${runningStart}–${runningStart+count-1}`;
+          runningStart+=count;
+          return{id:`S${i+1}`,rows:rows2,cols:cols2,label};
+        });
+        // grid.cols = most common column count (used as fallback in render)
+        const allCols=sectionsWithLabels.map(s=>s.cols);
+        const gridCols=allCols.sort((a,b)=>
+          allCols.filter(v=>v===b).length-allCols.filter(v=>v===a).length
+        )[0]||defaultCols;
+        const newSlots=generateSectionSlots(sectionsWithLabels,defaultCols);
+        locObj={...baseFields, slots:newSlots, grid:{sections:sectionsWithLabels,cols:gridCols}};
+      }
       // No top-level rows/cols — ensures Firebase loading uses stored data directly
     }
     // Find occupied slots that no longer exist in the new layout
