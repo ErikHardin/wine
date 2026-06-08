@@ -571,11 +571,11 @@ const LOCATIONS = (() => {
   for (const s of ["F","G"])             for (let i=1;i<=5;i++) wfSlots.push(`${s}${i}`);
 
   const closetSlots = [];
-  const sections = [{id:"S1",start:1,rows:2},{id:"S2",start:17,rows:3},{id:"S3",start:41,rows:3}];
+  const sections = [{id:"S1",rows:2},{id:"S2",rows:3},{id:"S3",rows:3}];
   for (const sec of sections)
     for (let r=1;r<=sec.rows;r++)
       for (let c=1;c<=8;c++)
-        closetSlots.push(`${sec.id}-R${r}-${String(sec.start+(r-1)*8+(c-1)).padStart(2,"0")}`);
+        closetSlots.push(`${sec.id}-R${r}-${String(c).padStart(2,"0")}`);
 
   return {
     fridge:     {id:"fridge",    name:"Main Fridge",    icon:"🧊",color:"#4a9aba",slots:fridgeSlots,
@@ -585,9 +585,9 @@ const LOCATIONS = (() => {
                        sectionCols:{A:7,B:7,C:7,D:7,E:7,F:5,G:5}}},
     closet:     {id:"closet",    name:"Closet Storage", icon:"🗄️",color:"#8b6010",slots:closetSlots,
                  grid:{sections:[
-                   {id:"S1",rows:2,label:"Section 1 · Slots 1–16"},
-                   {id:"S2",rows:3,label:"Section 2 · Slots 17–40"},
-                   {id:"S3",rows:3,label:"Section 3 · Slots 41–64"},
+                   {id:"S1",rows:2,label:"Section 1"},
+                   {id:"S2",rows:3,label:"Section 2"},
+                   {id:"S3",rows:3,label:"Section 3"},
                  ],cols:8}},
   };
 })();
@@ -870,6 +870,46 @@ function ce(tag,props={},children=[]){
 function html(h){ const d=document.createElement("div"); d.innerHTML=h; return d.firstElementChild; }
 
 // ── Firebase listeners ───────────────────────────────────────────
+async function migrateClosetToPerRowSlots() {
+  const flagSnap = await get(ref(db, "config/migrations/closetPerRowSlots"));
+  if (flagSnap.val()) return;
+
+  const secs=[{id:"S1",start:1,rows:2},{id:"S2",start:17,rows:3},{id:"S3",start:41,rows:3}];
+  const keyMap = {};
+  for (const sec of secs) {
+    for (let r=1; r<=sec.rows; r++) {
+      for (let c=1; c<=8; c++) {
+        const seqNum = sec.start + (r-1)*8 + (c-1);
+        const oldKey = `${sec.id}-R${r}-${String(seqNum).padStart(2,"0")}`;
+        const newKey = `${sec.id}-R${r}-${String(c).padStart(2,"0")}`;
+        if (oldKey !== newKey) keyMap[oldKey] = newKey;
+      }
+    }
+  }
+
+  const slotSnap = await get(ref(db, "slots/closet"));
+  const currentSlots = slotSnap.val() || {};
+
+  const updates = {};
+  for (const [oldKey, newKey] of Object.entries(keyMap)) {
+    const wineId = currentSlots[oldKey];
+    if (wineId) {
+      updates[`slots/closet/${newKey}`] = wineId;
+      updates[`slots/closet/${oldKey}`] = null;
+    }
+  }
+
+  const newSlots = [];
+  for (const sec of [{id:"S1",rows:2},{id:"S2",rows:3},{id:"S3",rows:3}])
+    for (let r=1; r<=sec.rows; r++)
+      for (let c=1; c<=8; c++)
+        newSlots.push(`${sec.id}-R${r}-${String(c).padStart(2,"0")}`);
+  updates["config/locations/closet/slots"] = newSlots;
+  updates["config/migrations/closetPerRowSlots"] = true;
+
+  await update(ref(db), updates);
+}
+
 async function seedConfigIfEmpty() {
   const [locsSnap, varsSnap] = await Promise.all([
     get(ref(db, "config/locations")),
@@ -1050,7 +1090,8 @@ function closetSlotKey(n) {
     if(n>=sec.start&&n<=end){
       const offset=n-sec.start;
       const r=Math.floor(offset/8)+1;
-      return `${sec.id}-R${r}-${String(n).padStart(2,"0")}`;
+      const c=(offset%8)+1;
+      return `${sec.id}-R${r}-${String(c).padStart(2,"0")}`;
     }
   }
   return null;
@@ -1306,6 +1347,7 @@ function initAuth() {
 
 async function handleAuthUser(user) {
   await seedUsersIfEmpty();
+  await migrateClosetToPerRowSlots();
   const emailKey = emailToKey(user.email);
   const snap = await get(ref(db, `config/users/${emailKey}`));
   if (!snap.exists()) {
