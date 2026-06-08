@@ -4508,10 +4508,6 @@ function _showLocationModal(existingLoc) {
         return;
       }
       const newSlots=generateCustomSlots(rows2,cols2);
-      const changed=JSON.stringify(newSlots)!==JSON.stringify(existingLoc?.slots);
-      if(changed&&hasOccupiedSlots()){
-        if(!confirm("Changing the grid layout will orphan existing slot assignments. Wines will not be deleted. Continue?"))return;
-      }
       locObj={
         ...baseFields, rows:rows2, cols:cols2,
         slots:newSlots,
@@ -4535,15 +4531,27 @@ function _showLocationModal(existingLoc) {
         allCols.filter(v=>v===b).length-allCols.filter(v=>v===a).length
       )[0]||defaultCols;
       const newSlots=generateSectionSlots(sectionsWithLabels,defaultCols);
-      const changed=JSON.stringify(newSlots)!==JSON.stringify(existingLoc?.slots);
-      if(changed&&hasOccupiedSlots()){
-        if(!confirm("Changing the grid layout will orphan existing slot assignments. Wines will not be deleted. Continue?"))return;
-      }
       locObj={...baseFields, slots:newSlots, grid:{sections:sectionsWithLabels,cols:gridCols}};
       // No top-level rows/cols — ensures Firebase loading uses stored data directly
     }
+    // Find occupied slots that no longer exist in the new layout
+    const newSlotSet = new Set(locObj.slots);
+    const displaced = existingLoc
+      ? Object.entries(slots[existingLoc.id] || {}).filter(([s, wid]) => wid && !newSlotSet.has(s))
+      : [];
+    if (displaced.length > 0) {
+      const names = displaced.map(([, wid]) => {
+        const w = wines[wid];
+        return w ? [w.vintage, w.winery, w.wine].filter(Boolean).join(" ") : wid;
+      });
+      const preview = names.slice(0, 5).join(", ") + (names.length > 5 ? ` and ${names.length - 5} more` : "");
+      if (!confirm(`${displaced.length} wine${displaced.length > 1 ? "s" : ""} will be moved back to the trip list: ${preview}. Continue?`)) return;
+    }
     save.disabled=true; save.textContent="Saving…";
     await saveLocation(locObj);
+    if (displaced.length > 0) {
+      await Promise.all(displaced.map(([slotName]) => clearSlot(existingLoc.id, slotName)));
+    }
     close();
   };
   actions.appendChild(cancel); actions.appendChild(save);
