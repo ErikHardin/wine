@@ -917,10 +917,11 @@ async function revertClosetToSequentialSlots() {
   await update(ref(db), updates);
 }
 
-async function runWineFridgePerSectionFix() {
-  const locSnap = await get(ref(db, "config/locations/winefridge"));
+async function runPerSectionFix(locId) {
+  const locSnap = await get(ref(db, `config/locations/${locId}`));
   const loc = locSnap.val();
-  if (!loc || !loc.grid || !loc.grid.sections) return "No wine fridge config found.";
+  if (!loc || !loc.grid || !loc.grid.sections) return `No config found for ${locId}.`;
+  if (typeof loc.grid.sections[0] !== "object") return `${loc.name}: compact format, no fix needed.`;
 
   const sectionDefs = loc.grid.sections;
   const defaultCols = loc.grid.cols || 7;
@@ -929,9 +930,9 @@ async function runWineFridgePerSectionFix() {
   const keyMap = {};
   const newSlots = [];
   for (const sec of sectionDefs) {
-    const secId = typeof sec === "object" ? sec.id : sec;
-    const rows  = typeof sec === "object" ? (sec.rows || 1) : 1;
-    const cols  = (typeof sec === "object" && sec.cols) ? sec.cols : defaultCols;
+    const secId = sec.id;
+    const rows  = sec.rows || 1;
+    const cols  = sec.cols || defaultCols;
     for (let r = 1; r <= rows; r++) {
       for (let c = 1; c <= cols; c++) {
         const seqNum = seqStart + (r - 1) * cols + (c - 1);
@@ -944,7 +945,7 @@ async function runWineFridgePerSectionFix() {
     seqStart += rows * cols;
   }
 
-  const slotSnap = await get(ref(db, "slots/winefridge"));
+  const slotSnap = await get(ref(db, `slots/${locId}`));
   const currentSlots = slotSnap.val() || {};
 
   const updates = {};
@@ -952,25 +953,31 @@ async function runWineFridgePerSectionFix() {
   for (const [oldKey, newKey] of Object.entries(keyMap)) {
     const wineId = currentSlots[oldKey];
     if (wineId) {
-      updates[`slots/winefridge/${newKey}`] = wineId;
-      updates[`slots/winefridge/${oldKey}`] = null;
+      updates[`slots/${locId}/${newKey}`] = wineId;
+      updates[`slots/${locId}/${oldKey}`] = null;
       moved++;
     }
   }
-  updates["config/locations/winefridge/slots"] = newSlots;
-  updates["config/migrations/wineFridgePerSectionV2"] = true;
+  updates[`config/locations/${locId}/slots`] = newSlots;
+  updates[`config/migrations/perSectionSlots_${locId}`] = true;
 
   await update(ref(db), updates);
-  return `Done — ${moved} wine${moved===1?"":"s"} remapped, ${newSlots.length} slots updated.`;
+  return `${loc.name}: ${moved} wine${moved===1?"":"s"} remapped, ${newSlots.length} slots updated.`;
 }
 
 async function migrateWineFridgeToPerSectionSlots() {
-  const flagSnap = await get(ref(db, "config/migrations/wineFridgePerSectionV2"));
-  if (flagSnap.val()) return;
-  try {
-    await runWineFridgePerSectionFix();
-  } catch(e) {
-    console.error("Wine fridge migration failed:", e);
+  // Run on any section-based location that hasn't been migrated yet
+  const locsSnap = await get(ref(db, "config/locations"));
+  const locs = locsSnap.val() || {};
+  for (const loc of Object.values(locs)) {
+    if (!loc.grid || !loc.grid.sections || typeof loc.grid.sections[0] !== "object") continue;
+    const flagSnap = await get(ref(db, `config/migrations/perSectionSlots_${loc.id}`));
+    if (flagSnap.val()) continue;
+    try {
+      await runPerSectionFix(loc.id);
+    } catch(e) {
+      console.error(`Per-section migration failed for ${loc.id}:`, e);
+    }
   }
 }
 
@@ -4045,17 +4052,28 @@ function renderSettingsSectionTrips() {
 }
 
 function renderSettingsSectionWineFridgeFix() {
-  return makeSettingsSection("wineFridgeFix", "Wine Fridge Slot Fix", sec => {
-    sec.appendChild(html(`<div style="font-size:13px;color:var(--brown-mid);margin-bottom:10px">Re-numbers each wine fridge section starting from 01 instead of continuing the count from the previous section. Safe to run multiple times.</div>`));
+  return makeSettingsSection("wineFridgeFix", "Section Slot Fix", sec => {
+    sec.appendChild(html(`<div style="font-size:13px;color:var(--brown-mid);margin-bottom:10px">Re-numbers each section starting from 01 instead of continuing the count from the previous section. Applies to all section-based locations. Safe to run multiple times.</div>`));
     const btn = html(`<button class="btn-ghost" style="width:100%">Run Fix Now</button>`);
     const status = document.createElement("div");
     status.style.cssText = "font-size:13px;margin-top:8px;color:var(--brown-mid)";
     btn.onclick = async () => {
       btn.disabled = true; btn.textContent = "Running…";
       try {
-        const msg = await runWineFridgePerSectionFix();
+        const targets = Object.values(allLocations).filter(l =>
+          l.grid && l.grid.sections && l.grid.sections.length > 0 && typeof l.grid.sections[0] === "object"
+        );
+        if (!targets.length) {
+          status.textContent = "No section-based locations found.";
+          btn.textContent = "Run Fix Now"; btn.disabled = false;
+          return;
+        }
+        const results = [];
+        for (const l of targets) {
+          results.push(await runPerSectionFix(l.id));
+        }
         status.style.color = "var(--green,#3a7d44)";
-        status.textContent = msg;
+        status.textContent = results.join(" | ");
         btn.textContent = "Done ✓";
       } catch(e) {
         status.style.color = "red";
