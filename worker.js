@@ -188,14 +188,14 @@ Rules:
 
         const response = await callClaude(env.ANTHROPIC_API_KEY, {
           model: MODEL,
-          max_tokens: 1500,
+          max_tokens: 1800,
           messages: [{
             role: "user",
             content: `You are an expert sommelier and wine critic. For the wine "${wineDesc}"${details ? ` (${details})` : ""}, provide:
 1. Exactly 5 specific food pairing suggestions (3-5 words each, specific dishes not just ingredients)
 2. A prime drinking window description (1-2 sentences)
 3. One serving tip (1 sentence, temperature and decanting)
-4. Exactly 3 critic-style tasting notes as they would appear in major wine publications. Each note 2-3 sentences in that publication's distinctive voice:
+4. Exactly 3 critic-style tasting notes grounded in the specific grape variety and region. Each note 2-3 sentences in that publication's distinctive voice, referencing the terroir, climate, and typical characteristics of the grape(s) and appellation:
    - Wine Advocate: bold, analytical, fruit-forward, mentions structure and aging potential
    - Wine Spectator: accessible, balanced, food-friendly framing
    - Vinous: lyrical, terroir-focused, emphasizes texture and energy
@@ -243,7 +243,10 @@ Respond ONLY with valid JSON, no markdown:
               const match = wines[0];
               if (match?.iWine) {
                 const notesUrl = `https://www.cellartracker.com/api.asp?q=list&type=CommunityTastingNotes&iWine=${match.iWine}&format=json&user=${encodeURIComponent(env.CELLARTRACKER_USER)}&password=${encodeURIComponent(env.CELLARTRACKER_PASS||"")}`;
-                const notesRes = await fetch(notesUrl, { signal: new AbortController().signal });
+                const notesController = new AbortController();
+                const notesTimeout = setTimeout(() => notesController.abort(), 4000);
+                const notesRes = await fetch(notesUrl, { signal: notesController.signal });
+                clearTimeout(notesTimeout);
                 if (notesRes.ok) {
                   const notesData = await notesRes.json();
                   const notesList = Array.isArray(notesData) ? notesData : [];
@@ -293,10 +296,10 @@ async function generateCriticNotes(apiKey, wineDesc, details, anchorScore) {
     : " Scores within a 4-point range of each other (85-100).";
   const response = await callClaude(apiKey, {
     model: MODEL,
-    max_tokens: 900,
+    max_tokens: 1400,
     messages: [{
       role: "user",
-      content: `You are an expert wine critic. For the wine "${wineDesc}"${details ? ` (${details})` : ""}, write exactly 3 critic-style tasting notes as they would appear in major wine publications. Each note 2-3 sentences in that publication's distinctive voice:
+      content: `You are an expert wine critic. For the wine "${wineDesc}"${details ? ` (${details})` : ""}, write exactly 3 critic-style tasting notes grounded in the specific grape variety and region. Ground each note in the terroir, climate, and signature characteristics of the grape(s) and appellation — avoid generic descriptors. Each note 2-3 sentences in that publication's distinctive voice:
    - Wine Advocate: bold, analytical, fruit-forward, mentions structure and aging potential
    - Wine Spectator: accessible, balanced, food-friendly framing
    - Vinous: lyrical, terroir-focused, emphasizes texture and energy

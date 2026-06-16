@@ -1122,12 +1122,18 @@ async function fetchPairingsForWine(wine) {
   try {
     const data = await callPairingsAPI(wine.winery, wine.wine, wine.vintage, wine.varietal, wine.region, wine.color);
     if (data.pairings) {
-      await updateWine(wine.id, {
+      const updates = {
         pairings:    data.pairings.slice(0, 4),
-        drinkWindow: data.drinkWindow ||null,
-        servingTip:  data.servingTip  ||null,
+        drinkWindow: data.drinkWindow || null,
+        servingTip:  data.servingTip  || null,
         pairingsAt:  Date.now(),
-      });
+      };
+      if (data.criticNotes?.length) {
+        updates.criticNotes   = data.criticNotes;
+        updates.criticSource  = data.criticSource || "ai";
+        updates.criticNotesAt = Date.now();
+      }
+      await updateWine(wine.id, updates);
     }
   } catch(e) { console.warn("Pairings fetch failed:", e); }
 }
@@ -1137,20 +1143,19 @@ async function callCriticsAPI(winery, wine, vintage, varietal, region) {
     method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({winery, wine, vintage, varietal, region}),
   });
+  if (!res.ok) throw new Error(`Critics API ${res.status}`);
   return res.json();
 }
 
 async function fetchCriticsForWine(wine) {
-  try {
-    const data = await callCriticsAPI(wine.winery, wine.wine, wine.vintage, wine.varietal, wine.region);
-    if (data.criticNotes?.length) {
-      await updateWine(wine.id, {
-        criticNotes:   data.criticNotes,
-        criticSource:  data.criticSource || "ai",
-        criticNotesAt: Date.now(),
-      });
-    }
-  } catch(e) { console.warn("Critic notes fetch failed:", e); }
+  const data = await callCriticsAPI(wine.winery, wine.wine, wine.vintage, wine.varietal, wine.region);
+  if (data.criticNotes?.length) {
+    await updateWine(wine.id, {
+      criticNotes:   data.criticNotes,
+      criticSource:  data.criticSource || "ai",
+      criticNotesAt: Date.now(),
+    });
+  }
 }
 
 // ── CSV IMPORT ────────────────────────────────────────────────────
@@ -2053,7 +2058,7 @@ function refreshFindResults() {
     container.appendChild(html(`<div class="empty-state"><div class="icon">📍</div><div class="title">No wines stored yet</div></div>`));
   } else if (filtered.length===0) {
     const empty = html(`<div class="empty-state"><div class="icon">🔍</div><div class="title">No wines match</div></div>`);
-    if(findFilters.food) empty.appendChild(html(`<div class="sub">Get AI pairings on more wine profiles to improve food matching.</div>`));
+    if(findFilters.food) empty.appendChild(html(`<div class="sub">Get pairings on more wine profiles to improve food matching.</div>`));
     container.appendChild(empty);
   } else {
     filtered.forEach(wine=>{ container.appendChild(renderFindCard(wine,findPlacement(wine.id))); });
@@ -2095,7 +2100,7 @@ function renderFindContent() {
     resultsList.appendChild(html(`<div class="empty-state"><div class="icon">📍</div><div class="title">No wines stored yet</div></div>`));
   } else if (filtered.length===0) {
     const empty = html(`<div class="empty-state"><div class="icon">🔍</div><div class="title">No wines match</div></div>`);
-    if(findFilters.food) empty.appendChild(html(`<div class="sub">Get AI pairings on more wine profiles to improve food matching.</div>`));
+    if(findFilters.food) empty.appendChild(html(`<div class="sub">Get pairings on more wine profiles to improve food matching.</div>`));
     resultsList.appendChild(empty);
   } else {
     filtered.forEach(wine=>{ resultsList.appendChild(renderFindCard(wine,findPlacement(wine.id))); });
@@ -2144,7 +2149,7 @@ function renderFilterPanel(storedWines, storedIds) {
   const withPairings = storedWines.filter(w=>w.pairings?.length).length;
   const foodSec = html(`<div>
     <div class="section-label">What are you eating?</div>
-    ${withPairings<storedWines.length&&storedWines.length>0?`<div style="color:var(--brown-pale);font-size:11px;margin-bottom:8px;font-style:italic">Get AI pairings on wine profiles to enable food matching for more bottles.</div>`:""}
+    ${withPairings<storedWines.length&&storedWines.length>0?`<div style="color:var(--brown-pale);font-size:11px;margin-bottom:8px;font-style:italic">Get pairings on wine profiles to enable food matching for more bottles.</div>`:""}
   </div>`);
   const foodWrap=document.createElement("div"); foodWrap.style.cssText="display:flex;flex-wrap:wrap;gap:6px";
   FOOD_PAIRINGS.forEach(f=>{
@@ -2364,7 +2369,7 @@ function showConsumedProfile(entry) {
   // Pairings
   if(entry.pairings?.length) {
     const aiBox=html(`<div style="background:rgba(184,134,11,0.06);border:1px solid rgba(184,134,11,0.2);border-radius:14px;padding:14px;margin-bottom:14px">
-      <div style="color:var(--gold);font-size:11px;letter-spacing:2px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif;margin-bottom:10px">🤖 AI Sommelier</div>
+      <div style="color:var(--gold);font-size:11px;letter-spacing:2px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif;margin-bottom:10px">🍾 Sommelier</div>
     </div>`);
     const pairingWrap=document.createElement("div"); pairingWrap.style.cssText="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:${entry.drinkWindow?'10px':'0'}";
     entry.pairings.forEach(p=>pairingWrap.appendChild(html(`<span style="background:rgba(184,134,11,0.1);border:1px solid rgba(184,134,11,0.2);border-radius:20px;padding:4px 12px;color:var(--gold);font-size:13px">${p}</span>`)));
@@ -3431,7 +3436,7 @@ function showWineProfile(wine) {
   // AI Sommelier
   const aiBox=html(`<div style="background:rgba(184,134,11,0.06);border:1px solid rgba(184,134,11,0.2);border-radius:14px;padding:16px;margin-bottom:14px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-      <div style="color:var(--gold);font-size:11px;letter-spacing:2px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">🤖 AI Sommelier</div>
+      <div style="color:var(--gold);font-size:11px;letter-spacing:2px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">🍾 Sommelier</div>
     </div>
   </div>`);
 
@@ -3454,7 +3459,7 @@ function showWineProfile(wine) {
     aiBox.appendChild(inner);
   } else {
     const pending=html(`<div style="display:flex;align-items:center;gap:10px;color:var(--brown-mid);font-size:13px;font-style:italic">
-      <div class="spinner"></div>Fetching pairings from AI sommelier…
+      <div class="spinner"></div>Fetching pairings…
     </div>`);
     aiBox.appendChild(pending);
   }
@@ -3472,7 +3477,7 @@ function showWineProfile(wine) {
   const criticsBadge=document.createElement("span");
   const isComm=wine.criticSource==="community";
   criticsBadge.style.cssText=`background:${isComm?"rgba(90,138,58,0.12)":"rgba(184,134,11,0.12)"};color:${isComm?"#5a8a3a":"var(--gold)"};font-size:9px;padding:2px 7px;border-radius:8px;font-weight:700`;
-  criticsBadge.textContent=isComm?"Community Data":"AI Estimate";
+  criticsBadge.textContent=isComm?"Community Data":"Estimated";
   criticsTitleRow.appendChild(criticsBadge);
   criticsHeader.appendChild(criticsTitleRow);
 
@@ -3489,7 +3494,7 @@ function showWineProfile(wine) {
     const n=notes[Math.floor(Math.random()*notes.length)];
     const isC=src==="community"||(n.criticSource==="community");
     criticsBadge.style.cssText=`background:${isC?"rgba(90,138,58,0.12)":"rgba(184,134,11,0.12)"};color:${isC?"#5a8a3a":"var(--gold)"};font-size:9px;padding:2px 7px;border-radius:8px;font-weight:700`;
-    criticsBadge.textContent=isC?"Community Data":"AI Estimate";
+    criticsBadge.textContent=isC?"Community Data":"Estimated";
     criticsContent.appendChild(html(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
       <div style="color:var(--brown-mid);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">${n.source}</div>
       ${n.score?`<span style="background:${scoreColor(n.score)}18;border:1px solid ${scoreColor(n.score)}44;color:${scoreColor(n.score)};font-size:11px;font-weight:800;font-family:monospace;padding:2px 8px;border-radius:8px">${n.score}</span>`:""}
@@ -3505,7 +3510,9 @@ function showWineProfile(wine) {
         await updateWine(wine.id,{criticNotes:data.criticNotes,criticSource:data.criticSource||"ai",criticNotesAt:Date.now()});
         renderCriticCards(data.criticNotes,data.criticSource);
       } else { criticsContent.innerHTML=""; }
-    } catch(e){ criticsContent.innerHTML=""; }
+    } catch(e){
+      criticsContent.innerHTML=`<div style="color:var(--brown-pale);font-size:12px;font-style:italic">Couldn't load notes — tap ↻ to retry.</div>`;
+    }
   }
 
   refreshBtn.onclick=()=>loadCritics(true);
@@ -3753,7 +3760,7 @@ function renderEditWineModal(wine) {
     const isCommE=wine.criticSource==="community";
     const labelRow=document.createElement("div"); labelRow.style.cssText="display:flex;align-items:center;gap:6px;margin-bottom:4px";
     labelRow.appendChild(html(`<div class="field-label" style="margin-bottom:0">Critic Notes</div>`));
-    const ecBadge=html(`<span style="background:${isCommE?"rgba(90,138,58,0.12)":"rgba(184,134,11,0.12)"};color:${isCommE?"#5a8a3a":"var(--gold)"};font-size:9px;padding:1px 6px;border-radius:6px;font-weight:700">${isCommE?"Community Data":"AI Estimate"}</span>`);
+    const ecBadge=html(`<span style="background:${isCommE?"rgba(90,138,58,0.12)":"rgba(184,134,11,0.12)"};color:${isCommE?"#5a8a3a":"var(--gold)"};font-size:9px;padding:1px 6px;border-radius:6px;font-weight:700">${isCommE?"Community Data":"Estimated"}</span>`);
     labelRow.appendChild(ecBadge);
     editCriticWrap.appendChild(labelRow);
     const n=wine.criticNotes[Math.floor(Math.random()*wine.criticNotes.length)];
@@ -4444,7 +4451,7 @@ function renderSettingsSectionDeleteWine() {
 function renderSettingsSectionBulkRefresh() {
   // Auto-expand while a refresh is running so the progress bar stays visible
   if (bulkRefreshRunning) settingsExpanded.bulk = true;
-  return makeSettingsSection("bulk", "Bulk AI Refresh", sec => {
+  return makeSettingsSection("bulk", "Bulk Refresh", sec => {
     if (bulkRefreshRunning) {
       const { done, total, errors, phase, currentName } = bulkRefreshProgress;
       const pct = total>0?Math.round(done/total*100):0;
