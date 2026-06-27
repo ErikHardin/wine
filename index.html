@@ -2038,6 +2038,7 @@ function renderCellarContent() {
 
 // ── FIND TAB ─────────────────────────────────────────────────────
 let findFilters = {color:"",varietal:"",region:"",vintageFrom:"",vintageTo:"",priceMin:"",priceMax:"",scoreMin:"",readyNow:false,food:"",trip:""};
+let pendingFilters = null;
 let findQuery = "";
 
 function filterWines(storedWines) {
@@ -2076,6 +2077,14 @@ function refreshFindResults() {
   } else {
     filtered.forEach(wine=>{ container.appendChild(renderFindCard(wine,findPlacement(wine.id))); });
   }
+}
+
+function refreshFilterPanel() {
+  const existing = document.getElementById("filter-panel-wrap");
+  if (!existing) { renderTab(); return; }
+  const stored = storedWineIds();
+  const storedWines = Object.values(wines).filter(w => stored.has(w.id));
+  existing.replaceWith(renderFilterPanel(storedWines, stored));
 }
 
 function renderFindSubheader() {
@@ -2127,6 +2136,7 @@ function renderFindContent() {
 let filterOpen = false;
 
 function renderFilterPanel(storedWines, storedIds) {
+  const pf = pendingFilters || findFilters;
   const activeCount = [
     findFilters.color,findFilters.varietal,findFilters.region,
     findFilters.vintageFrom||findFilters.vintageTo,
@@ -2135,43 +2145,54 @@ function renderFilterPanel(storedWines, storedIds) {
   ].filter(Boolean).length;
 
   const wrap = document.createElement("div");
-  wrap.style.marginBottom="12px";
+  wrap.id = "filter-panel-wrap";
+  wrap.style.marginBottom = "12px";
 
   const hdr = document.createElement("div");
-  hdr.style.cssText="display:flex;gap:8px;align-items:center";
+  hdr.style.cssText = "display:flex;gap:8px;align-items:center";
 
   const toggleBtn = html(`<button style="flex:1;padding:10px 14px;border-radius:10px;border:1px solid ${activeCount?"var(--gold)":"var(--border)"};background:${activeCount?"rgba(184,134,11,0.08)":"var(--surface-2)"};color:${activeCount?"var(--gold)":"var(--brown-mid)"};font-size:13px;cursor:pointer;display:flex;align-items:center;gap:8px;font-family:'Crimson Pro',serif">
     <span>🔧</span><span>Filter${activeCount?` · ${activeCount} active`:""}</span>
     <span style="margin-left:auto;font-size:11px">${filterOpen?"▲":"▼"}</span>
   </button>`);
-  toggleBtn.onclick=()=>{ filterOpen=!filterOpen; renderTab(); };
+  toggleBtn.onclick = () => {
+    if (!filterOpen) pendingFilters = {...findFilters};
+    else pendingFilters = null;
+    filterOpen = !filterOpen;
+    renderTab();
+  };
   hdr.appendChild(toggleBtn);
 
-  if (activeCount>0) {
-    const clr=html(`<button style="padding:10px 12px;border-radius:10px;border:1px solid rgba(139,38,53,0.2);background:rgba(139,38,53,0.06);color:var(--red-wine);font-size:12px;cursor:pointer;font-family:inherit">Clear</button>`);
-    clr.onclick=()=>{ findFilters={color:"",varietal:"",region:"",vintageFrom:"",vintageTo:"",priceMin:"",priceMax:"",scoreMin:"",readyNow:false,food:"",trip:""}; renderTab(); };
+  if (activeCount > 0) {
+    const clr = html(`<button style="padding:10px 12px;border-radius:10px;border:1px solid rgba(139,38,53,0.2);background:rgba(139,38,53,0.06);color:var(--red-wine);font-size:12px;cursor:pointer;font-family:inherit">Clear</button>`);
+    clr.onclick = () => {
+      const empty = {color:"",varietal:"",region:"",vintageFrom:"",vintageTo:"",priceMin:"",priceMax:"",scoreMin:"",readyNow:false,food:"",trip:""};
+      findFilters = empty;
+      pendingFilters = filterOpen ? {...empty} : null;
+      renderTab();
+    };
     hdr.appendChild(clr);
   }
   wrap.appendChild(hdr);
 
   if (!filterOpen) return wrap;
 
-  const panel = html(`<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:10px;display:flex;flex-direction:column;gap:14px"></div>`);
+  const panel = html(`<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:10px;display:flex;flex-direction:column;gap:14px;overflow-y:auto;max-height:60vh"></div>`);
 
   // Food filter
-  const withPairings = storedWines.filter(w=>w.pairings?.length).length;
+  const withPairings = storedWines.filter(w => w.pairings?.length).length;
   const foodSec = html(`<div>
     <div class="section-label">What are you eating?</div>
-    ${withPairings<storedWines.length&&storedWines.length>0?`<div style="color:var(--brown-pale);font-size:11px;margin-bottom:8px;font-style:italic">Get pairings on wine profiles to enable food matching for more bottles.</div>`:""}
+    ${withPairings < storedWines.length && storedWines.length > 0 ? `<div style="color:var(--brown-pale);font-size:11px;margin-bottom:8px;font-style:italic">Get pairings on wine profiles to enable food matching for more bottles.</div>` : ""}
   </div>`);
-  const foodWrap=document.createElement("div"); foodWrap.style.cssText="display:flex;flex-wrap:wrap;gap:6px";
-  FOOD_PAIRINGS.forEach(f=>{
-    const active=findFilters.food===f.id;
-    const matchCount=storedWines.filter(w=>matchesFood(w,f.id)).length;
-    const btn=html(`<button style="padding:6px 11px;border-radius:20px;border:1px solid ${active?"var(--gold)":"var(--border)"};background:${active?"rgba(184,134,11,0.12)":"var(--surface-3)"};color:${active?"var(--gold)":matchCount>0?"var(--brown-mid)":"var(--brown-pale)"};font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px;font-family:inherit">
-      <span>${f.emoji}</span><span>${f.label}</span>${matchCount>0?`<span class="badge-count">${matchCount}</span>`:""}
+  const foodWrap = document.createElement("div"); foodWrap.style.cssText = "display:flex;flex-wrap:wrap;gap:6px";
+  FOOD_PAIRINGS.forEach(f => {
+    const active = pf.food === f.id;
+    const matchCount = storedWines.filter(w => matchesFood(w, f.id)).length;
+    const btn = html(`<button style="padding:6px 11px;border-radius:20px;border:1px solid ${active?"var(--gold)":"var(--border)"};background:${active?"rgba(184,134,11,0.12)":"var(--surface-3)"};color:${active?"var(--gold)":matchCount>0?"var(--brown-mid)":"var(--brown-pale)"};font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px;font-family:inherit">
+      <span>${f.emoji}</span><span>${f.label}</span>${matchCount > 0 ? `<span class="badge-count">${matchCount}</span>` : ""}
     </button>`);
-    btn.onclick=()=>{ findFilters.food=active?"":f.id; renderTab(); };
+    btn.onclick = () => { pendingFilters.food = active ? "" : f.id; refreshFilterPanel(); };
     foodWrap.appendChild(btn);
   });
   foodSec.appendChild(foodWrap);
@@ -2180,75 +2201,86 @@ function renderFilterPanel(storedWines, storedIds) {
   panel.appendChild(html(`<div class="divider"></div>`));
 
   // Color
-  const colorSec=html(`<div><div class="section-label">Color</div><div style="display:flex;gap:6px;flex-wrap:wrap"></div></div>`);
-  COLOR_OPTIONS.forEach(c=>{
-    const active=findFilters.color===c;
-    const dot=colorDot(c);
-    const btn=html(`<button style="padding:5px 12px;border-radius:20px;border:1px solid ${active?dot:"var(--border)"};background:${active?dot+"22":"transparent"};color:${active?dot:"var(--brown-mid)"};font-size:12px;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:5px">
+  const colorSec = html(`<div><div class="section-label">Color</div><div style="display:flex;gap:6px;flex-wrap:wrap"></div></div>`);
+  COLOR_OPTIONS.forEach(c => {
+    const active = pf.color === c;
+    const dot = colorDot(c);
+    const btn = html(`<button style="padding:5px 12px;border-radius:20px;border:1px solid ${active?dot:"var(--border)"};background:${active?dot+"22":"transparent"};color:${active?dot:"var(--brown-mid)"};font-size:12px;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:5px">
       <span style="width:8px;height:8px;border-radius:50%;background:${dot};display:inline-block"></span>${c}
     </button>`);
-    btn.onclick=()=>{ findFilters.color=active?"":c; renderTab(); };
+    btn.onclick = () => { pendingFilters.color = active ? "" : c; refreshFilterPanel(); };
     colorSec.querySelector("div:last-child").appendChild(btn);
   });
   panel.appendChild(colorSec);
 
   // Varietal
-  const varSec=html(`<div><div class="section-label">Varietal</div></div>`);
-  const sel=document.createElement("select");
-  sel.innerHTML=`<option value="">Any varietal</option>`+(allVarietals.length?allVarietals:VARIETAL_OPTIONS).map(v=>`<option value="${v}"${findFilters.varietal===v?" selected":""}>${v}</option>`).join("");
-  sel.onchange=e=>{ findFilters.varietal=e.target.value; renderTab(); };
+  const varSec = html(`<div><div class="section-label">Varietal</div></div>`);
+  const sel = document.createElement("select");
+  sel.innerHTML = `<option value="">Any varietal</option>` + (allVarietals.length ? allVarietals : VARIETAL_OPTIONS).map(v => `<option value="${v}"${pf.varietal === v ? " selected" : ""}>${v}</option>`).join("");
+  sel.onchange = e => { pendingFilters.varietal = e.target.value; refreshFilterPanel(); };
   varSec.appendChild(sel); panel.appendChild(varSec);
 
   // Region
-  const regSec=html(`<div><div class="section-label">Region</div></div>`);
-  const ri=document.createElement("input"); ri.placeholder="e.g. Napa Valley"; ri.value=findFilters.region;
-  ri.oninput=e=>{ findFilters.region=e.target.value; refreshFindResults(); };
+  const regSec = html(`<div><div class="section-label">Region</div></div>`);
+  const ri = document.createElement("input"); ri.placeholder = "e.g. Napa Valley"; ri.value = pf.region;
+  ri.oninput = e => { pendingFilters.region = e.target.value; };
   regSec.appendChild(ri); panel.appendChild(regSec);
 
   // Vintage
-  const vinSec=html(`<div><div class="section-label">Vintage Year</div><div style="display:flex;gap:8px"></div></div>`);
-  const vf=document.createElement("input"); vf.placeholder="From"; vf.inputMode="numeric"; vf.maxLength=4; vf.value=findFilters.vintageFrom;
-  const vt=document.createElement("input"); vt.placeholder="To";   vt.inputMode="numeric"; vt.maxLength=4; vt.value=findFilters.vintageTo;
-  vf.oninput=e=>{ findFilters.vintageFrom=e.target.value.replace(/\D/g,""); refreshFindResults(); };
-  vt.oninput=e=>{ findFilters.vintageTo  =e.target.value.replace(/\D/g,""); refreshFindResults(); };
-  vinSec.querySelector("div:last-child").append(vf,vt); panel.appendChild(vinSec);
+  const vinSec = html(`<div><div class="section-label">Vintage Year</div><div style="display:flex;gap:8px"></div></div>`);
+  const vf = document.createElement("input"); vf.placeholder = "From"; vf.inputMode = "numeric"; vf.maxLength = 4; vf.value = pf.vintageFrom;
+  const vto = document.createElement("input"); vto.placeholder = "To"; vto.inputMode = "numeric"; vto.maxLength = 4; vto.value = pf.vintageTo;
+  vf.oninput = e => { pendingFilters.vintageFrom = e.target.value.replace(/\D/g, ""); };
+  vto.oninput = e => { pendingFilters.vintageTo = e.target.value.replace(/\D/g, ""); };
+  vinSec.querySelector("div:last-child").append(vf, vto); panel.appendChild(vinSec);
 
   // Price
-  const priceSec=html(`<div><div class="section-label">Price Per Bottle ($)</div><div style="display:flex;gap:8px"></div></div>`);
-  const pn=document.createElement("input"); pn.placeholder="Min"; pn.inputMode="numeric"; pn.value=findFilters.priceMin;
-  const px=document.createElement("input"); px.placeholder="Max"; px.inputMode="numeric"; px.value=findFilters.priceMax;
-  pn.oninput=e=>{ findFilters.priceMin=e.target.value.replace(/\D/g,""); refreshFindResults(); };
-  px.oninput=e=>{ findFilters.priceMax=e.target.value.replace(/\D/g,""); refreshFindResults(); };
-  priceSec.querySelector("div:last-child").append(pn,px); panel.appendChild(priceSec);
+  const priceSec = html(`<div><div class="section-label">Price Per Bottle ($)</div><div style="display:flex;gap:8px"></div></div>`);
+  const pn = document.createElement("input"); pn.placeholder = "Min"; pn.inputMode = "numeric"; pn.value = pf.priceMin;
+  const pmx = document.createElement("input"); pmx.placeholder = "Max"; pmx.inputMode = "numeric"; pmx.value = pf.priceMax;
+  pn.oninput = e => { pendingFilters.priceMin = e.target.value.replace(/\D/g, ""); };
+  pmx.oninput = e => { pendingFilters.priceMax = e.target.value.replace(/\D/g, ""); };
+  priceSec.querySelector("div:last-child").append(pn, pmx); panel.appendChild(priceSec);
 
   // Score
-  const scoreSec=html(`<div><div class="section-label">Min Critic Score</div><div style="display:flex;gap:6px;flex-wrap:wrap"></div></div>`);
-  ["","85","88","90","92","95"].forEach(s=>{
-    const active=findFilters.scoreMin===s;
-    const btn=html(`<button style="padding:5px 12px;border-radius:20px;border:1px solid ${active?"var(--gold)":"var(--border)"};background:${active?"rgba(184,134,11,0.12)":"transparent"};color:${active?"var(--gold)":"var(--brown-mid)"};font-size:12px;cursor:pointer;font-family:inherit">${s?s+"+":"Any"}</button>`);
-    btn.onclick=()=>{ findFilters.scoreMin=s; renderTab(); };
+  const scoreSec = html(`<div><div class="section-label">Min Critic Score</div><div style="display:flex;gap:6px;flex-wrap:wrap"></div></div>`);
+  ["","85","88","90","92","95"].forEach(s => {
+    const active = pf.scoreMin === s;
+    const btn = html(`<button style="padding:5px 12px;border-radius:20px;border:1px solid ${active?"var(--gold)":"var(--border)"};background:${active?"rgba(184,134,11,0.12)":"transparent"};color:${active?"var(--gold)":"var(--brown-mid)"};font-size:12px;cursor:pointer;font-family:inherit">${s ? s+"+" : "Any"}</button>`);
+    btn.onclick = () => { pendingFilters.scoreMin = s; refreshFilterPanel(); };
     scoreSec.querySelector("div:last-child").appendChild(btn);
   });
   panel.appendChild(scoreSec);
 
   // Trip filter
-  const tripList = Object.values(trips).sort((a,b) => b.createdAt - a.createdAt);
+  const tripList = Object.values(trips).sort((a, b) => b.createdAt - a.createdAt);
   if (tripList.length > 0) {
     panel.appendChild(html(`<div class="divider"></div>`));
     const tripSec = html(`<div><div class="section-label">Shopping Trip</div></div>`);
     const tSel = document.createElement("select");
     tSel.innerHTML = `<option value="">Any trip</option>` +
-      tripList.map(t => `<option value="${t.id}"${findFilters.trip===t.id?" selected":""}>${t.name}</option>`).join("");
-    tSel.onchange = e => { findFilters.trip = e.target.value; refreshFindResults(); };
+      tripList.map(t => `<option value="${t.id}"${pf.trip === t.id ? " selected" : ""}>${t.name}</option>`).join("");
+    tSel.onchange = e => { pendingFilters.trip = e.target.value; refreshFilterPanel(); };
     tripSec.appendChild(tSel); panel.appendChild(tripSec);
   }
 
   // Ready now
-  const rdy=html(`<button style="padding:10px 14px;border-radius:10px;border:1px solid ${findFilters.readyNow?"#5a8a3a":"var(--border)"};background:${findFilters.readyNow?"rgba(90,138,58,0.1)":"transparent"};color:${findFilters.readyNow?"#5a8a3a":"var(--brown-mid)"};font-size:13px;cursor:pointer;font-family:'Crimson Pro',serif;text-align:left;width:100%">
+  const rdy = html(`<button style="padding:10px 14px;border-radius:10px;border:1px solid ${pf.readyNow?"#5a8a3a":"var(--border)"};background:${pf.readyNow?"rgba(90,138,58,0.1)":"transparent"};color:${pf.readyNow?"#5a8a3a":"var(--brown-mid)"};font-size:13px;cursor:pointer;font-family:'Crimson Pro',serif;text-align:left;width:100%">
     ✅ Ready to drink now only
   </button>`);
-  rdy.onclick=()=>{ findFilters.readyNow=!findFilters.readyNow; renderTab(); };
+  rdy.onclick = () => { pendingFilters.readyNow = !pf.readyNow; refreshFilterPanel(); };
   panel.appendChild(rdy);
+
+  // Apply button
+  panel.appendChild(html(`<div class="divider"></div>`));
+  const applyBtn = html(`<button style="width:100%;padding:12px;border-radius:10px;border:none;background:var(--gold);color:#fff;font-size:14px;font-weight:700;cursor:pointer;font-family:'Crimson Pro',serif">Apply Filters</button>`);
+  applyBtn.onclick = () => {
+    findFilters = {...pendingFilters};
+    pendingFilters = null;
+    filterOpen = false;
+    renderTab();
+  };
+  panel.appendChild(applyBtn);
 
   wrap.appendChild(panel);
   return wrap;
@@ -2278,8 +2310,8 @@ function renderFindCard(wine, placement) {
         </div>`:""}
       </div>
       ${loc?`<div style="text-align:right;flex-shrink:0">
+        ${sectionLabel?`<div style="color:${loc.color};font-size:16px;font-weight:800;margin-bottom:4px;font-family:'Cormorant Garamond',serif">${sectionLabel}</div>`:""}
         <div style="background:${loc.color}18;color:${loc.color};font-size:11px;padding:3px 9px;border-radius:9px;font-weight:700;margin-bottom:3px;border:1px solid ${loc.color}33">${loc.icon} ${placement.slot}</div>
-        ${sectionLabel?`<div style="color:${loc.color};font-size:10px;font-weight:600;margin-bottom:2px">${sectionLabel}</div>`:""}
         <div style="color:var(--brown-pale);font-size:11px">${loc.name}</div>
       </div>`:""}
     </div>
@@ -3444,8 +3476,8 @@ function showWineProfile(wine) {
       <div>
         <div style="color:var(--brown-pale);font-size:10px;letter-spacing:2px;text-transform:uppercase">Stored in</div>
         <div style="font-family:'Cormorant Garamond',serif;font-size:16px;font-weight:800;color:${loc.color}">${loc.name}</div>
+        ${sectionLabel?`<div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:800;color:${loc.color};margin-top:2px">${sectionLabel}</div>`:""}
         <div style="color:var(--ink);font-size:24px;font-weight:900;font-family:monospace;letter-spacing:2px">${placement.slot}</div>
-        ${sectionLabel?`<div style="color:var(--brown-pale);font-size:11px;margin-top:2px">${sectionLabel}</div>`:""}
       </div>
     </div>`));
   }
