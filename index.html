@@ -852,6 +852,19 @@ function findPlacement(wineId) {
   return findAllPlacements(wineId)[0] ?? null;
 }
 
+function getSlotSection(loc, slot) {
+  if (!loc || !slot || !loc.grid || !loc.grid.sections?.length) return null;
+  const isCloset = typeof loc.grid.sections[0] === 'object';
+  if (isCloset) {
+    const secId = slot.split('-')[0];
+    const secDef = loc.grid.sections.find(s => s.id === secId);
+    return secDef ? secDef.label : null;
+  }
+  const secId = loc.grid.sections.find(s => slot.startsWith(s));
+  if (!secId) return null;
+  return /^R\d+$/.test(secId) ? `Row ${secId.replace("R", "")}` : `Section ${secId}`;
+}
+
 function storedWineIds() {
   const ids=new Set();
   for (const locId of Object.keys(allLocations))
@@ -2242,7 +2255,8 @@ function renderFilterPanel(storedWines, storedIds) {
 }
 
 function renderFindCard(wine, placement) {
-  const loc    = placement ? allLocations[placement.locId] : null;
+  const loc          = placement ? allLocations[placement.locId] : null;
+  const sectionLabel = loc ? getSlotSection(loc, placement.slot) : null;
   const status = drinkStatus(wine);
   const card   = html(`<div class="card" style="cursor:pointer">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
@@ -2265,6 +2279,7 @@ function renderFindCard(wine, placement) {
       </div>
       ${loc?`<div style="text-align:right;flex-shrink:0">
         <div style="background:${loc.color}18;color:${loc.color};font-size:11px;padding:3px 9px;border-radius:9px;font-weight:700;margin-bottom:3px;border:1px solid ${loc.color}33">${loc.icon} ${placement.slot}</div>
+        ${sectionLabel?`<div style="color:${loc.color};font-size:10px;font-weight:600;margin-bottom:2px">${sectionLabel}</div>`:""}
         <div style="color:var(--brown-pale);font-size:11px">${loc.name}</div>
       </div>`:""}
     </div>
@@ -3423,12 +3438,14 @@ function showWineProfile(wine) {
 
   // Location
   if(loc){
+    const sectionLabel = getSlotSection(loc, placement.slot);
     sheet.appendChild(html(`<div style="background:${loc.color}12;border:1px solid ${loc.color}33;border-radius:12px;padding:14px 16px;margin-bottom:14px;display:flex;align-items:center;gap:14px">
       <div style="font-size:28px">${loc.icon}</div>
       <div>
         <div style="color:var(--brown-pale);font-size:10px;letter-spacing:2px;text-transform:uppercase">Stored in</div>
         <div style="font-family:'Cormorant Garamond',serif;font-size:16px;font-weight:800;color:${loc.color}">${loc.name}</div>
         <div style="color:var(--ink);font-size:24px;font-weight:900;font-family:monospace;letter-spacing:2px">${placement.slot}</div>
+        ${sectionLabel?`<div style="color:var(--brown-pale);font-size:11px;margin-top:2px">${sectionLabel}</div>`:""}
       </div>
     </div>`));
   }
