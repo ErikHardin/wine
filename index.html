@@ -490,6 +490,7 @@
       <button class="tab-btn active" onclick="switchTab('cellar')" id="tab-cellar">🗂 Cellar</button>
       <button class="tab-btn" onclick="switchTab('find')" id="tab-find">🔍 Find</button>
       <button class="tab-btn" onclick="switchTab('consumed')" id="tab-consumed">🍷 Consumed</button>
+      <button class="tab-btn" onclick="switchTab('stats')" id="tab-stats">📊 Stats</button>
     </div>
     <div id="tab-subheader"></div>
   </div>
@@ -873,6 +874,29 @@ function storedWineIds() {
     for (const [,wid] of Object.entries(slots[locId]||{}))
       if (wid) ids.add(wid);
   return ids;
+}
+
+function cellarVarietalStats() {
+  const byGrape = {};
+  let totalBottles = 0;
+  for (const locId of Object.keys(allLocations)) {
+    for (const wid of Object.values(slots[locId]||{})) {
+      if (!wid || !wines[wid]) continue;
+      const w = wines[wid];
+      totalBottles++;
+      const grapes = (w.varietal||"").split(",").map(v=>v.trim()).filter(Boolean);
+      for (const g of (grapes.length ? grapes : ["Unknown"])) {
+        const e = byGrape[g] || (byGrape[g] = {count:0, colors:{}});
+        e.count++;
+        if (w.color) e.colors[w.color] = (e.colors[w.color]||0)+1;
+      }
+    }
+  }
+  const rows = Object.entries(byGrape).map(([name,e])=>({
+    name, count: e.count,
+    color: Object.entries(e.colors).sort((a,b)=>b[1]-a[1])[0]?.[0] || ""
+  })).sort((a,b)=>b.count-a.count || a.name.localeCompare(b.name));
+  return { rows, totalBottles };
 }
 
 function el(id){ return document.getElementById(id); }
@@ -1580,6 +1604,7 @@ function renderTab() {
   if(currentTab==="cellar")   { sh.appendChild(renderCellarSubheader()); c.innerHTML=""; c.appendChild(renderCellarContent()); }
   if(currentTab==="find")     { sh.appendChild(renderFindSubheader()); c.innerHTML=""; c.appendChild(renderFindContent()); }
   if(currentTab==="consumed") { c.innerHTML=""; c.appendChild(renderConsumedTab()); }
+  if(currentTab==="stats")    { sh.appendChild(renderStatsSubheader()); c.innerHTML=""; c.appendChild(renderStatsContent()); }
 }
 
 // ── TRIP TAB ─────────────────────────────────────────────────────
@@ -2400,6 +2425,62 @@ function renderConsumedCard(c) {
   </div>`);
   card.onclick=()=>showConsumedProfile(c);
   return card;
+}
+
+// ── STATS TAB ────────────────────────────────────────────────────
+function renderStatsSubheader() {
+  const frag = document.createDocumentFragment();
+  const { rows, totalBottles } = cellarVarietalStats();
+  if (totalBottles === 0) return frag;
+  const top = rows.find(r=>r.name!=="Unknown") || rows[0];
+  const tile = (value,label,grow=1,size=19)=>`
+    <div style="flex:${grow};min-width:0;background:rgba(184,134,11,0.10);border:1px solid rgba(184,134,11,0.25);border-radius:10px;padding:8px 6px;text-align:center;display:flex;flex-direction:column;justify-content:center">
+      <div style="font-family:'Cormorant Garamond',serif;font-size:${size}px;font-weight:800;color:var(--gold);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${value}</div>
+      <div style="color:var(--brown-pale);font-size:9px;letter-spacing:1px;text-transform:uppercase">${label}</div>
+    </div>`;
+  frag.appendChild(html(`<div style="display:flex;gap:8px">
+    ${tile(totalBottles,`bottle${totalBottles===1?"":"s"} stored`)}
+    ${tile(rows.length,`varietal${rows.length===1?"":"s"}`)}
+    ${top?tile(top.name,"top varietal",1.7,15):""}
+  </div>`));
+  return frag;
+}
+
+function renderStatsContent() {
+  const frag = document.createDocumentFragment();
+  const { rows, totalBottles } = cellarVarietalStats();
+  if (totalBottles === 0) {
+    frag.appendChild(html(`<div class="empty-state"><div class="icon">📊</div><div class="title">No bottles stored yet</div><div class="sub">Store wines in your cellar to see the varietal breakdown.</div></div>`));
+    return frag;
+  }
+  frag.appendChild(html(`<div class="section-label">Varietals in cellar</div>`));
+  const list = document.createElement("div");
+  const maxCount = rows[0].count;
+  rows.forEach(r=>{
+    const pct = Math.round(r.count/totalBottles*100);
+    const width = Math.max(Math.round(r.count/maxCount*100), 2);
+    const clickable = r.name!=="Unknown";
+    const row = html(`<div style="padding:9px 0;border-bottom:1px solid var(--border-2);cursor:${clickable?"pointer":"default"}">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:5px">
+        <div style="display:flex;align-items:center;gap:7px;min-width:0">
+          <div class="color-dot" style="background:${colorDot(r.color)}"></div>
+          <div style="color:var(--ink);font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
+        </div>
+        <div style="color:var(--brown-mid);font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums">${r.count} bottle${r.count===1?"":"s"} · ${pct}%</div>
+      </div>
+      <div class="drink-bar" style="height:8px;border-radius:4px"><div class="drink-bar-fill" style="width:${width}%;background:var(--gold)"></div></div>
+    </div>`);
+    if (clickable) row.onclick=()=>{
+      findFilters = {color:"",varietal:r.name,region:"",vintageFrom:"",vintageTo:"",priceMin:"",priceMax:"",scoreMin:"",readyNow:false,food:"",trip:""};
+      pendingFilters = null;
+      filterOpen = false;
+      switchTab("find");
+    };
+    list.appendChild(row);
+  });
+  frag.appendChild(list);
+  frag.appendChild(html(`<div style="color:var(--brown-pale);font-size:11px;margin-top:12px;line-height:1.5">Blends count under each of their grapes, so percentages can add up to more than 100%. Tap a varietal to see those wines in Find.</div>`));
+  return frag;
 }
 
 // ── CONSUMED PROFILE MODAL ───────────────────────────────────────
