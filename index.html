@@ -548,6 +548,7 @@ function setActiveTrip(id) {
   activeTrip = id;
   tripColorExpanded = {};
   tripStoredExpanded = false;
+  tripConsumedExpanded = false;
   try { id ? localStorage.setItem("wine_active_trip", id) : localStorage.removeItem("wine_active_trip"); } catch(_) {}
 }
 
@@ -562,6 +563,7 @@ let bulkRefreshProgress = { done:0, total:0, errors:0, phase:"", currentName:"" 
 let settingsExpanded    = { locations: false, varietals: false, bulk: false, deleteWine: false, users: false, trips: false, orphanWines: false };
 let tripColorExpanded   = {};
 let tripStoredExpanded  = false;
+let tripConsumedExpanded = false;
 
 // ── Locations ────────────────────────────────────────────────────
 const LOCATIONS = (() => {
@@ -1691,7 +1693,8 @@ function renderTripSubheader() {
   const trip = activeTrip ? trips[activeTrip] : null;
   if (trip && trip.capacity > 0) {
     const tripWines = Object.values(wines).filter(w => w.tripId === activeTrip && !consumedIds.has(w.id));
-    const used = tripWines.reduce((s, w) => s + (parseInt(w.qty) || 1), 0);
+    const consumedFromTrip = Object.values(consumed).filter(c => c.tripId === activeTrip).length;
+    const used = tripWines.reduce((s, w) => s + (parseInt(w.qty) || 1), 0) + consumedFromTrip;
     const pct  = Math.min(100, Math.round(used / trip.capacity * 100));
     frag.appendChild(html(`<div style="margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
@@ -1742,7 +1745,11 @@ function renderTripContent() {
     ? Object.values(wines).filter(w => w.tripId === activeTrip && stored.has(w.id) && !consumedIds.has(w.id))
     : [];
 
-  if (Object.keys(wines).length===0) {
+  const consumedFromTrip = activeTrip
+    ? Object.values(consumed).filter(c => c.tripId === activeTrip).sort((a,b) => b.consumedAt - a.consumedAt)
+    : [];
+
+  if (Object.keys(wines).length===0 && consumedFromTrip.length===0) {
     frag.appendChild(html(`<div class="empty-state">
       <div class="icon">🍷</div>
       <div class="title">No wines yet</div>
@@ -1751,7 +1758,7 @@ function renderTripContent() {
     return frag;
   }
 
-  if (unassigned.length===0 && storedFromTrip.length===0) {
+  if (unassigned.length===0 && storedFromTrip.length===0 && consumedFromTrip.length===0) {
     const msg = activeTrip
       ? `<div class="sub">No wines in this trip yet.<br>Tap <strong>+ Add Wine</strong> to add some.</div>`
       : `<div class="sub">Check the Cellar Map or Find a Bottle.</div>`;
@@ -1763,7 +1770,7 @@ function renderTripContent() {
     return frag;
   }
 
-  if (unassigned.length===0 && storedFromTrip.length>0) {
+  if (unassigned.length===0) {
     frag.appendChild(html(`<div style="text-align:center;padding:14px 0 10px;color:#5a8a3a;font-size:13px">✅ All pending wines stored</div>`));
   } else {
     const COLOR_ORDER = ["Red", "White", "Rosé", "Sparkling"];
@@ -1842,6 +1849,39 @@ function renderTripContent() {
       if (tripStoredExpanded) {
         body.innerHTML = "";
         sortedStored.forEach(w => body.appendChild(renderFindCard(w, findPlacement(w.id))));
+        body.style.display = "block";
+        hdr.querySelector("span:last-child").textContent = "▼";
+      } else {
+        body.style.display = "none";
+        hdr.querySelector("span:last-child").textContent = "▶";
+      }
+    };
+
+    sec.appendChild(hdr);
+    sec.appendChild(body);
+    frag.appendChild(sec);
+  }
+
+  if (consumedFromTrip.length > 0) {
+    const sec = document.createElement("div");
+    sec.style.cssText = "margin-top:18px";
+
+    const hdr = html(`<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(0,0,0,0.08);cursor:pointer;user-select:none">
+      <span style="font-family:'Cormorant Garamond',serif;font-size:15px;font-weight:700;color:var(--ink);flex:1">🍷 Consumed</span>
+      <span style="font-size:12px;color:var(--brown-mid)">${consumedFromTrip.length} bottle${consumedFromTrip.length!==1?"s":""}</span>
+      <span style="font-size:11px;color:var(--brown-pale);margin-left:2px">${tripConsumedExpanded?"▼":"▶"}</span>
+    </div>`);
+
+    const body = document.createElement("div");
+    body.style.display = tripConsumedExpanded ? "block" : "none";
+    body.style.paddingTop = "6px";
+    if (tripConsumedExpanded) consumedFromTrip.forEach(c => body.appendChild(renderConsumedCard(c)));
+
+    hdr.onclick = () => {
+      tripConsumedExpanded = !tripConsumedExpanded;
+      if (tripConsumedExpanded) {
+        body.innerHTML = "";
+        consumedFromTrip.forEach(c => body.appendChild(renderConsumedCard(c)));
         body.style.display = "block";
         hdr.querySelector("span:last-child").textContent = "▼";
       } else {
@@ -2330,34 +2370,36 @@ function renderConsumedTab() {
     return frag;
   }
 
-  entries.forEach(c=>{
-    const loc=c.locId?allLocations[c.locId]:null;
-    const d=new Date(c.consumedAt);
-    const dateStr=d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});
-    const card=html(`<div class="card" style="opacity:0.88;cursor:pointer">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start">
-        <div style="flex:1;min-width:0">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
-            <div class="color-dot" style="background:${colorDot(c.color)}"></div>
-            <div style="font-family:'Cormorant Garamond',serif;font-size:15px;font-weight:700;color:var(--ink)">${c.wine}</div>
-          </div>
-          <div style="color:var(--brown-light);font-size:12px;font-style:italic">${c.winery}${c.vintage?" · "+c.vintage:""}</div>
-          <div style="display:flex;gap:10px;margin-top:5px;flex-wrap:wrap">
-            ${c.price>0?`<span style="color:var(--brown-pale);font-size:11px">${formatPrice(c)}</span>`:""}
-            ${loc?`<span style="color:var(--brown-pale);font-size:11px">${loc.icon} was in ${loc.name} · ${c.slot}</span>`:""}
-          </div>
-          ${c.pairings?.length?`<div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap">
-            ${c.pairings.slice(0,3).map(p=>`<span style="background:rgba(184,134,11,0.08);border-radius:10px;padding:2px 8px;color:var(--brown-pale);font-size:10px">${p}</span>`).join("")}
-          </div>`:""}
-        </div>
-        <div style="color:var(--brown-pale);font-size:10px;text-align:right;flex-shrink:0;margin-left:10px">${dateStr}<div style="margin-top:4px;font-size:9px;letter-spacing:0.5px;opacity:0.7">tap for details</div></div>
-      </div>
-    </div>`);
-    card.onclick=()=>showConsumedProfile(c);
-    frag.appendChild(card);
-  });
+  entries.forEach(c=>frag.appendChild(renderConsumedCard(c)));
 
   return frag;
+}
+
+function renderConsumedCard(c) {
+  const loc=c.locId?allLocations[c.locId]:null;
+  const d=new Date(c.consumedAt);
+  const dateStr=d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});
+  const card=html(`<div class="card" style="opacity:0.88;cursor:pointer">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
+          <div class="color-dot" style="background:${colorDot(c.color)}"></div>
+          <div style="font-family:'Cormorant Garamond',serif;font-size:15px;font-weight:700;color:var(--ink)">${c.wine}</div>
+        </div>
+        <div style="color:var(--brown-light);font-size:12px;font-style:italic">${c.winery}${c.vintage?" · "+c.vintage:""}</div>
+        <div style="display:flex;gap:10px;margin-top:5px;flex-wrap:wrap">
+          ${c.price>0?`<span style="color:var(--brown-pale);font-size:11px">${formatPrice(c)}</span>`:""}
+          ${loc?`<span style="color:var(--brown-pale);font-size:11px">${loc.icon} was in ${loc.name} · ${c.slot}</span>`:""}
+        </div>
+        ${c.pairings?.length?`<div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap">
+          ${c.pairings.slice(0,3).map(p=>`<span style="background:rgba(184,134,11,0.08);border-radius:10px;padding:2px 8px;color:var(--brown-pale);font-size:10px">${p}</span>`).join("")}
+        </div>`:""}
+      </div>
+      <div style="color:var(--brown-pale);font-size:10px;text-align:right;flex-shrink:0;margin-left:10px">${dateStr}<div style="margin-top:4px;font-size:9px;letter-spacing:0.5px;opacity:0.7">tap for details</div></div>
+    </div>
+  </div>`);
+  card.onclick=()=>showConsumedProfile(c);
+  return card;
 }
 
 // ── CONSUMED PROFILE MODAL ───────────────────────────────────────
