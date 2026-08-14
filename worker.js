@@ -465,6 +465,15 @@ async function callClaude(apiKey, body) {
 // validated by the caller before it reaches a database path.
 async function writeCriticsToFirebase(env, wineId, payload) {
   const url = `${FIREBASE_DB}/wines/${wineId}.json?auth=${encodeURIComponent(env.FIREBASE_DB_SECRET)}`;
+
+  // PATCH creates the path if it is missing, so an unknown id would leave a
+  // stub record with critic notes and no wine on it. Only update what exists.
+  const existing = await fetch(`${url}&shallow=true`);
+  if (!existing.ok || (await existing.text()).trim() === "null") {
+    console.error(`Refusing to write critics: wine ${wineId} not found`);
+    return;
+  }
+
   const res = await fetch(url, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
