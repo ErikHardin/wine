@@ -19,8 +19,9 @@ const BUILD      = "critics-stream-3";
 
 // /critics budget: a phone is waiting on the response, so bound how long the
 // search may run before we force it to answer with what it has.
-const MAX_SEARCH_ROUNDS = 2;
-const SEARCH_BUDGET_MS  = 90000;
+const MAX_SEARCH_ROUNDS   = 2;
+const SEARCH_BUDGET_MS    = 90000;
+const FINALIZE_TIMEOUT_MS = 30000;
 
 export default {
   async fetch(request, env, ctx) {
@@ -270,9 +271,26 @@ After searching, respond ONLY with valid JSON, no markdown, no commentary:
 
             for (;;) {
               const t0 = Date.now();
-              response = await callClaudeStreaming(env.ANTHROPIC_API_KEY, {
-                model: MODEL, max_tokens: 4000, tools, messages,
-              });
+              // A round has to be cut off from the outside: the budget below
+              // only applies between rounds, so without this one slow round
+              // runs indefinitely and the app spins forever.
+              const left = SEARCH_BUDGET_MS - (Date.now() - startedAt);
+              try {
+                response = await callClaudeStreaming(env.ANTHROPIC_API_KEY, {
+                  model: MODEL, max_tokens: 4000, tools, messages,
+                }, Math.max(left, 15000));
+              } catch (e) {
+                rounds++;
+                trace.push({ round: rounds, ms: Date.now() - t0, error: String(e.message).slice(0, 80) });
+                // With earlier rounds banked there is real search material to
+                // finalize from. With none, there is nothing to summarise, and
+                // asking anyway would invite an answer from memory rather than
+                // from sources — so report the timeout and let the user retry
+                // instead of recording a false "no reviews exist".
+                if (rounds > 1) { exhausted = true; break; }
+                const timedOut = e.name === "AbortError" || /abort/i.test(e.message || "");
+                throw timedOut ? new Error("Search timed out before finding anything") : e;
+              }
               rounds++;
               trace.push({ round: rounds, ms: Date.now() - t0, stop: response.stop_reason });
               if (response.stop_reason !== "pause_turn") break;
@@ -292,7 +310,7 @@ After searching, respond ONLY with valid JSON, no markdown, no commentary:
               try {
                 response = await callClaudeStreaming(env.ANTHROPIC_API_KEY, {
                   model: MODEL, max_tokens: 1500, messages,
-                });
+                }, FINALIZE_TIMEOUT_MS);
                 trace.push({ round: "finalize", ms: Date.now() - t0, stop: response.stop_reason });
               } catch (e) {
                 trace.push({ round: "finalize", ms: Date.now() - t0, error: String(e.message).slice(0, 120) });
@@ -371,9 +389,22 @@ After searching, respond ONLY with valid JSON, no markdown, no commentary:
 // A web-search turn can take longer than the 100s Cloudflare allows a
 // subrequest to sit silent, which comes back as a 524. Streaming keeps
 // bytes flowing, so we consume the SSE events and rebuild the message.
-async function callClaudeStreaming(apiKey, body) {
+async function callClaudeStreaming(apiKey, body, timeoutMs) {
+  // Covers the whole read, not just the connect: the stream can keep trickling
+  // tokens for minutes, and nothing else can stop it once it starts.
+  const abort = new AbortController();
+  const timer = timeoutMs ? setTimeout(() => abort.abort(), timeoutMs) : null;
+  try {
+    return await streamClaude(apiKey, body, abort.signal);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function streamClaude(apiKey, body, signal) {
   const res = await fetch(CLAUDE_API, {
     method: "POST",
+    signal,
     headers: {
       "Content-Type":      "application/json",
       "x-api-key":         apiKey,
