@@ -1073,7 +1073,7 @@ async function initFirebase() {
     render();
     if (document.getElementById("settings-overlay")) renderSettingsBody();
   });
-  onValue(ref(db,"wines"),   snap=>{ wines   =snap.val()||{}; render(); if(document.getElementById("settings-overlay")) renderSettingsBody(); });
+  onValue(ref(db,"wines"),   snap=>{ wines   =snap.val()||{}; render(); if(document.getElementById("settings-overlay")) renderSettingsBody(); openProfileRefresh?.(); });
   onValue(ref(db,"slots"),   snap=>{ slots   =snap.val()||{}; render(); if(document.getElementById("settings-overlay")) renderSettingsBody(); });
   onValue(ref(db,"consumed"),snap=>{ consumed=snap.val()||{}; render(); });
   onValue(ref(db,"trips"),   snap=>{ trips   =snap.val()||{}; render(); });
@@ -1173,10 +1173,10 @@ async function fetchPairingsForWine(wine) {
   } catch(e) { console.warn("Pairings fetch failed:", e); }
 }
 
-async function callCriticsAPI(winery, wine, vintage, varietal, region) {
+async function callCriticsAPI(winery, wine, vintage, varietal, region, wineId) {
   const res = await fetch(`${WORKER_URL}/critics`, {
     method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({winery, wine, vintage, varietal, region}),
+    body: JSON.stringify({winery, wine, vintage, varietal, region, wineId}),
   });
   if (!res.ok) throw new Error(`Critics API ${res.status}`);
   // The response streams keepalive whitespace before the JSON, and errors
@@ -1186,8 +1186,22 @@ async function callCriticsAPI(winery, wine, vintage, varietal, region) {
   return data;
 }
 
+// Wines whose search the worker has accepted but not yet written back.
+const criticsSearching = new Set();
+
 async function fetchCriticsForWine(wine) {
-  const data = await callCriticsAPI(wine.winery, wine.wine, wine.vintage, wine.varietal, wine.region);
+  criticsSearching.add(wine.id);
+  let data;
+  try {
+    data = await callCriticsAPI(wine.winery, wine.wine, wine.vintage, wine.varietal, wine.region, wine.id);
+  } catch (e) {
+    criticsSearching.delete(wine.id);
+    throw e;
+  }
+  // Async mode: the worker writes the result to Firebase itself, and the wines
+  // listener re-renders when it lands. Nothing to persist here.
+  if (data.status === "searching") return;
+  criticsSearching.delete(wine.id);
   if (data.criticNotes?.length) {
     await updateWine(wine.id, {
       criticNotes:   data.criticNotes,
@@ -3551,11 +3565,17 @@ function pickPlacementModal(placements) {
 }
 
 // ── WINE PROFILE ─────────────────────────────────────────────────
+// Set while a profile sheet is open, so the wines listener can refresh its
+// critic notes when a background search writes them in. render() rebuilds the
+// tabs but never touches the modal.
+let openProfileRefresh = null;
+
 function showWineProfile(wine) {
   const root=el("modal-root"); root.innerHTML="";
   const overlay=document.createElement("div"); overlay.className="modal-overlay";
   const sheet  =document.createElement("div"); sheet.className="modal-sheet";
-  overlay.onclick=e=>{ if(e.target===overlay) root.innerHTML=""; };
+  const closeProfile=()=>{ openProfileRefresh=null; root.innerHTML=""; };
+  overlay.onclick=e=>{ if(e.target===overlay) closeProfile(); };
 
   const placement=findPlacement(wine.id);
   const loc      =placement?allLocations[placement.locId]:null;
@@ -3566,7 +3586,7 @@ function showWineProfile(wine) {
   // Close button row
   const closeRow=document.createElement("div"); closeRow.style.cssText="display:flex;justify-content:flex-end;margin-bottom:4px";
   const closeBtn=html(`<button style="background:none;border:none;font-size:22px;color:var(--brown-pale);cursor:pointer;padding:0;line-height:1">×</button>`);
-  closeBtn.onclick=()=>root.innerHTML="";
+  closeBtn.onclick=closeProfile;
   closeRow.appendChild(closeBtn); sheet.appendChild(closeRow);
 
   // Title
@@ -3676,10 +3696,26 @@ function showWineProfile(wine) {
   const criticsContent=document.createElement("div");
   criticsBox.appendChild(criticsContent);
 
+  // Critics on a 20- or 5-point scale have no 100-point score; show what they
+  // actually published rather than dropping the rating.
+  function criticScoreChip(n){
+    const label = n.score ? String(n.score) : (n.scoreText || "");
+    if(!label) return "";
+    const c = n.score ? scoreColor(n.score) : "var(--brown-mid)";
+    const bg = n.score ? `${c}18` : "rgba(120,100,80,0.08)";
+    const bd = n.score ? `${c}44` : "rgba(120,100,80,0.2)";
+    return `<span style="background:${bg};border:1px solid ${bd};color:${c};font-size:11px;font-weight:800;font-family:monospace;padding:2px 8px;border-radius:8px">${esc(label)}${n.vintageMatch===false?"*":""}</span>`;
+  }
+
+  function renderSearching(){
+    criticsContent.innerHTML=`<div style="display:flex;align-items:center;gap:10px;color:var(--brown-mid);font-size:13px;font-style:italic"><div class="spinner"></div>Searching published reviews… this takes a few minutes. You can close this — notes appear when ready.</div>`;
+  }
+
   function renderCriticCards(notes, src){
     criticsContent.innerHTML="";
     setCriticsBadge(src);
     if(!notes?.length){
+      if(criticsSearching.has(wine.id)) { renderSearching(); return; }
       if(src==="none") criticsContent.innerHTML=`<div style="color:var(--brown-pale);font-size:12px;font-style:italic">No published critic reviews found for this wine.</div>`;
       return;
     }
@@ -3689,7 +3725,7 @@ function showWineProfile(wine) {
       const who=esc(n.source)+(n.critic?` · ${esc(n.critic)}`:"");
       card.appendChild(html(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <div style="color:var(--brown-mid);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">${who}</div>
-        ${n.score?`<span style="background:${scoreColor(n.score)}18;border:1px solid ${scoreColor(n.score)}44;color:${scoreColor(n.score)};font-size:11px;font-weight:800;font-family:monospace;padding:2px 8px;border-radius:8px">${n.score}${n.vintageMatch===false?"*":""}</span>`:""}
+        ${criticScoreChip(n)}
       </div>`));
       card.appendChild(html(`<div style="color:var(--brown-mid);font-size:13px;line-height:1.7;font-style:italic">${esc(n.note)}</div>`));
       const meta=[];
@@ -3701,16 +3737,13 @@ function showWineProfile(wine) {
   }
 
   async function loadCritics(showSpinner){
-    if(showSpinner) criticsContent.innerHTML=`<div style="display:flex;align-items:center;gap:10px;color:var(--brown-mid);font-size:13px;font-style:italic"><div class="spinner"></div>Searching for critic reviews…</div>`;
+    if(showSpinner) renderSearching();
     try {
-      const data=await callCriticsAPI(wine.winery,wine.wine,wine.vintage,wine.varietal,wine.region);
-      if(data.criticNotes?.length){
-        await updateWine(wine.id,{criticNotes:data.criticNotes,criticSource:data.criticSource||"web",criticNotesAt:Date.now()});
-        renderCriticCards(data.criticNotes,data.criticSource||"web");
-      } else if(data.found===false){
-        await updateWine(wine.id,{criticNotes:[],criticSource:"none",criticNotesAt:Date.now()});
-        renderCriticCards([],"none");
-      } else { criticsContent.innerHTML=""; }
+      await fetchCriticsForWine(wine);
+      // In async mode the worker writes the result itself and the wines
+      // listener repaints this box; nothing lands here synchronously.
+      const fresh = wines[wine.id] || wine;
+      if(!criticsSearching.has(wine.id)) renderCriticCards(fresh.criticNotes, fresh.criticSource);
     } catch(e){
       criticsContent.innerHTML=`<div style="color:var(--brown-pale);font-size:12px;font-style:italic">Couldn't load notes — tap ↻ to retry.</div>`;
     }
@@ -3718,10 +3751,22 @@ function showWineProfile(wine) {
 
   refreshBtn.onclick=()=>loadCritics(true);
 
+  // Repaint when a background search writes its results in.
+  openProfileRefresh=()=>{
+    const fresh = wines[wine.id];
+    if(!fresh) return;
+    if(fresh.criticNotes?.length || fresh.criticSource==="none"){
+      criticsSearching.delete(wine.id);
+      renderCriticCards(fresh.criticNotes, fresh.criticSource);
+    }
+  };
+
   if(wine.criticNotes?.length){
     renderCriticCards(wine.criticNotes,wine.criticSource);
   } else if(wine.criticSource==="none"){
     renderCriticCards([],"none");
+  } else if(criticsSearching.has(wine.id)){
+    renderSearching();          // a search kicked off elsewhere is still running
   } else {
     loadCritics(true);
   }
@@ -3974,7 +4019,8 @@ function renderEditWineModal(wine) {
     card.style.cssText="background:rgba(139,38,53,0.05);border:1px solid rgba(139,38,53,0.12);border-radius:10px;padding:10px 12px;";
     card.appendChild(html(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
       <span style="color:var(--brown-mid);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">${esc(n.source)}${n.critic?` · ${esc(n.critic)}`:""}</span>
-      ${n.score?`<span style="color:${scoreColor(n.score)};font-size:11px;font-weight:800;font-family:monospace">${n.score} pts</span>`:""}
+      ${n.score?`<span style="color:${scoreColor(n.score)};font-size:11px;font-weight:800;font-family:monospace">${n.score} pts</span>`
+                :(n.scoreText?`<span style="color:var(--brown-mid);font-size:11px;font-weight:800;font-family:monospace">${esc(n.scoreText)}</span>`:"")}
     </div>`));
     card.appendChild(html(`<div style="color:var(--brown-mid);font-size:12px;line-height:1.6;font-style:italic">${esc(n.note)}</div>`));
     editCriticWrap.appendChild(card);
@@ -4781,7 +4827,8 @@ function renderSettingsProgressBar() {
   const { done, total, errors, phase, currentName } = bulkRefreshProgress;
   const pct = total>0?Math.round(done/total*100):0;
   fill.style.width = pct + "%";
-  if (text) text.textContent = `${phase==="pairings"?"Pairings":"Critic Notes"}: ${done}/${total}${errors?" · "+errors+" errors":""}`;
+  const label = phase==="pairings" ? "Pairings" : (criticsSearching.size ? "Critic Notes (searching)" : "Critic Notes");
+  if (text) text.textContent = `${label}: ${done}/${total}${errors?" · "+errors+" errors":""}`;
   if (name) name.textContent = currentName;
 }
 
@@ -4804,7 +4851,12 @@ async function startBulkRefresh(mode) {
         else {
           // Web searches cost money — skip wines with fresh web-sourced reviews
           const fresh = wine.criticSource==="web" && wine.criticNotesAt && (Date.now()-wine.criticNotesAt) < 30*24*3600*1000;
-          if (!fresh) await fetchCriticsForWine(wine);
+          if (!fresh) {
+            await fetchCriticsForWine(wine);
+            // Async mode returns as soon as the search is accepted, so without
+            // a pause this would fire the whole cellar at once.
+            if (criticsSearching.has(wine.id)) await new Promise(r=>setTimeout(r,1500));
+          }
         }
       } catch(_) { bulkRefreshProgress.errors++; }
       bulkRefreshProgress.done++;
