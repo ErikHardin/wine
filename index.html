@@ -1179,7 +1179,11 @@ async function callCriticsAPI(winery, wine, vintage, varietal, region) {
     body: JSON.stringify({winery, wine, vintage, varietal, region}),
   });
   if (!res.ok) throw new Error(`Critics API ${res.status}`);
-  return res.json();
+  // The response streams keepalive whitespace before the JSON, and errors
+  // arrive in the body of a 200 rather than as an HTTP status
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data;
 }
 
 async function fetchCriticsForWine(wine) {

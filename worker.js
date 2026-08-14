@@ -16,7 +16,7 @@ const CLAUDE_API = "https://api.anthropic.com/v1/messages";
 const MODEL      = "claude-sonnet-5";
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
 
     // ── CORS ──────────────────────────────────────────────────────
     const origin  = request.headers.get("Origin") || "";
@@ -238,39 +238,65 @@ After searching, respond ONLY with valid JSON, no markdown, no commentary:
         const tools = [{ type: "web_search_20260209", name: "web_search", max_uses: 4 }];
         const messages = [{ role: "user", content: prompt }];
 
-        let response = await callClaude(env.ANTHROPIC_API_KEY, {
-          model: MODEL, max_tokens: 4000, tools, messages,
+        // The search takes 1-2 minutes, but iOS Safari aborts any request
+        // that receives no bytes for 60s. Stream the response: send headers
+        // now, trickle whitespace while searching (JSON.parse ignores it),
+        // then write the real payload and close.
+        const { readable, writable } = new TransformStream();
+        const writer = writable.getWriter();
+        const enc = new TextEncoder();
+
+        const work = (async () => {
+          const keepalive = setInterval(() => { writer.write(enc.encode(" ")).catch(() => {}); }, 15000);
+          let payload;
+          try {
+            let response = await callClaude(env.ANTHROPIC_API_KEY, {
+              model: MODEL, max_tokens: 4000, tools, messages,
+            });
+            // The server-side search loop may pause; continue until it finishes.
+            for (let i = 0; i < 3 && response.stop_reason === "pause_turn"; i++) {
+              messages.push({ role: "assistant", content: response.content });
+              response = await callClaude(env.ANTHROPIC_API_KEY, {
+                model: MODEL, max_tokens: 4000, tools, messages,
+              });
+            }
+
+            // The final JSON is in the last text block (earlier ones interleave with searches).
+            const textBlocks = (response.content || []).filter(b => b.type === "text");
+            const text   = textBlocks.length ? textBlocks[textBlocks.length - 1].text : "{}";
+            const parsed = safeParseJSON(text);
+
+            const notes = (Array.isArray(parsed.criticNotes) ? parsed.criticNotes : [])
+              .map(n => ({
+                source:       String(n.source ?? "").trim(),
+                critic:       n.critic ? String(n.critic).trim() : null,
+                score:        Number.isFinite(+n.score) && +n.score >= 50 && +n.score <= 100 ? Math.round(+n.score) : null,
+                note:         String(n.note ?? "").trim(),
+                url:          typeof n.url === "string" && /^https?:\/\//.test(n.url) ? n.url : null,
+                vintageMatch: n.vintageMatch !== false,
+                criticSource: "web",
+              }))
+              .filter(n => n.source && n.note)
+              .slice(0, 3);
+
+            payload = notes.length
+              ? { criticNotes: notes, criticSource: "web", found: true }
+              : { criticNotes: [], criticSource: "none", found: false };
+          } catch (err) {
+            console.error("Critics error:", err);
+            payload = { error: "Internal error: " + err.message };
+          } finally {
+            clearInterval(keepalive);
+          }
+          await writer.write(enc.encode(JSON.stringify(payload))).catch(() => {});
+          await writer.close().catch(() => {});
+        })();
+        if (ctx?.waitUntil) ctx.waitUntil(work);
+
+        return new Response(readable, {
+          status: 200,
+          headers: { "Content-Type": "application/json", ...corsHeaders },
         });
-        // The server-side search loop may pause; continue until it finishes.
-        for (let i = 0; i < 3 && response.stop_reason === "pause_turn"; i++) {
-          messages.push({ role: "assistant", content: response.content });
-          response = await callClaude(env.ANTHROPIC_API_KEY, {
-            model: MODEL, max_tokens: 4000, tools, messages,
-          });
-        }
-
-        // The final JSON is in the last text block (earlier ones interleave with searches).
-        const textBlocks = (response.content || []).filter(b => b.type === "text");
-        const text   = textBlocks.length ? textBlocks[textBlocks.length - 1].text : "{}";
-        const parsed = safeParseJSON(text);
-
-        const notes = (Array.isArray(parsed.criticNotes) ? parsed.criticNotes : [])
-          .map(n => ({
-            source:       String(n.source ?? "").trim(),
-            critic:       n.critic ? String(n.critic).trim() : null,
-            score:        Number.isFinite(+n.score) && +n.score >= 50 && +n.score <= 100 ? Math.round(+n.score) : null,
-            note:         String(n.note ?? "").trim(),
-            url:          typeof n.url === "string" && /^https?:\/\//.test(n.url) ? n.url : null,
-            vintageMatch: n.vintageMatch !== false,
-            criticSource: "web",
-          }))
-          .filter(n => n.source && n.note)
-          .slice(0, 3);
-
-        if (!notes.length) {
-          return jsonResponse({ criticNotes: [], criticSource: "none", found: false }, corsHeaders);
-        }
-        return jsonResponse({ criticNotes: notes, criticSource: "web", found: true }, corsHeaders);
       }
 
       return new Response("Not found", { status: 404, headers: corsHeaders });
