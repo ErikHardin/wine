@@ -18,6 +18,8 @@
 const CLAUDE_API = "https://api.anthropic.com/v1/messages";
 const FIREBASE_DB = "https://wine-5ab2d-default-rtdb.firebaseio.com";
 const MODEL      = "claude-sonnet-5";
+// Bump when changing behaviour worth identifying from /health.
+const BUILD      = "critics-async-2";
 
 // /critics budget: a phone is waiting on the response, so bound how long the
 // search may run before we force it to answer with what it has.
@@ -41,6 +43,20 @@ export default {
 
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders });
+    }
+
+    // Reports which build is live and whether each secret binding is visible,
+    // so a misconfigured secret is diagnosable from outside. Booleans only —
+    // no secret values are ever returned.
+    if (new URL(request.url).pathname === "/health") {
+      return jsonResponse({
+        build: BUILD,
+        model: MODEL,
+        hasAnthropicKey:  !!env.ANTHROPIC_API_KEY,
+        hasFirebaseSecret: !!env.FIREBASE_DB_SECRET,
+        firebaseSecretLength: (env.FIREBASE_DB_SECRET || "").length,
+        asyncCriticsAvailable: !!env.FIREBASE_DB_SECRET,
+      }, corsHeaders);
     }
 
     if (request.method !== "POST") {
