@@ -18,6 +18,8 @@
 const CLAUDE_API = "https://api.anthropic.com/v1/messages";
 const FIREBASE_DB = "https://wine-5ab2d-default-rtdb.firebaseio.com";
 const MODEL      = "claude-sonnet-5";
+// Bump when changing behaviour worth identifying from /health.
+const BUILD      = "critics-async-2";
 
 // /critics budget: a phone is waiting on the response, so bound how long the
 // search may run before we force it to answer with what it has.
@@ -41,6 +43,20 @@ export default {
 
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders });
+    }
+
+    // Reports which build is live and whether each secret binding is visible,
+    // so a misconfigured secret is diagnosable from outside. Booleans only —
+    // no secret values are ever returned.
+    if (new URL(request.url).pathname === "/health") {
+      return jsonResponse({
+        build: BUILD,
+        model: MODEL,
+        hasAnthropicKey:  !!env.ANTHROPIC_API_KEY,
+        hasFirebaseSecret: !!env.FIREBASE_DB_SECRET,
+        firebaseSecretLength: (env.FIREBASE_DB_SECRET || "").length,
+        asyncCriticsAvailable: !!env.FIREBASE_DB_SECRET,
+      }, corsHeaders);
     }
 
     if (request.method !== "POST") {
@@ -465,6 +481,15 @@ async function callClaude(apiKey, body) {
 // validated by the caller before it reaches a database path.
 async function writeCriticsToFirebase(env, wineId, payload) {
   const url = `${FIREBASE_DB}/wines/${wineId}.json?auth=${encodeURIComponent(env.FIREBASE_DB_SECRET)}`;
+
+  // PATCH creates the path if it is missing, so an unknown id would leave a
+  // stub record with critic notes and no wine on it. Only update what exists.
+  const existing = await fetch(`${url}&shallow=true`);
+  if (!existing.ok || (await existing.text()).trim() === "null") {
+    console.error(`Refusing to write critics: wine ${wineId} not found`);
+    return;
+  }
+
   const res = await fetch(url, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
