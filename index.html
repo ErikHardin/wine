@@ -1173,9 +1173,10 @@ async function fetchPairingsForWine(wine) {
   } catch(e) { console.warn("Pairings fetch failed:", e); }
 }
 
-// Longer than the worker's own budget, so this only fires if the worker itself
-// stops answering — without it a stalled request spins the sheet forever.
-const CRITICS_TIMEOUT_MS = 210000;
+// Backstop only. The worker's own budget (~190s worst case) should always fire
+// first, because it degrades into a real answer or a clear timeout; this just
+// stops a wedged request from spinning the sheet forever.
+const CRITICS_TIMEOUT_MS = 240000;
 
 async function callCriticsAPI(winery, wine, vintage, varietal, region) {
   const res = await fetch(`${WORKER_URL}/critics`, {

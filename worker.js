@@ -20,8 +20,12 @@ const BUILD      = "critics-stream-3";
 // /critics budget: a phone is waiting on the response, so bound how long the
 // search may run before we force it to answer with what it has.
 const MAX_SEARCH_ROUNDS   = 2;
-const SEARCH_BUDGET_MS    = 90000;
-const FINALIZE_TIMEOUT_MS = 30000;
+// Measured against real wines: 54s / 126s / 155s / 160s to a good answer, and
+// one that ran 588s. The budget has to clear the slowest wine that actually
+// succeeds without waiting on the ones that never converge, so it sits above
+// the observed successes and well below the runaway.
+const SEARCH_BUDGET_MS    = 165000;
+const FINALIZE_TIMEOUT_MS = 25000;
 
 export default {
   async fetch(request, env, ctx) {
@@ -266,6 +270,10 @@ After searching, respond ONLY with valid JSON, no markdown, no commentary:
             // number of rounds and the wall-clock spent searching — a phone is
             // waiting on this.
             const startedAt = Date.now();
+            // Overridable so the budget can be tuned, or shrunk under test,
+            // without a redeploy.
+            const searchBudget   = Number(env.SEARCH_BUDGET_MS)    || SEARCH_BUDGET_MS;
+            const finalizeBudget = Number(env.FINALIZE_TIMEOUT_MS) || FINALIZE_TIMEOUT_MS;
             let response, rounds = 0, exhausted = false;
             const trace = [];
 
@@ -274,11 +282,11 @@ After searching, respond ONLY with valid JSON, no markdown, no commentary:
               // A round has to be cut off from the outside: the budget below
               // only applies between rounds, so without this one slow round
               // runs indefinitely and the app spins forever.
-              const left = SEARCH_BUDGET_MS - (Date.now() - startedAt);
+              const left = searchBudget - (Date.now() - startedAt);
               try {
                 response = await callClaudeStreaming(env.ANTHROPIC_API_KEY, {
                   model: MODEL, max_tokens: 4000, tools, messages,
-                }, Math.max(left, 15000));
+                }, Math.max(left, 5000));
               } catch (e) {
                 rounds++;
                 trace.push({ round: rounds, ms: Date.now() - t0, error: String(e.message).slice(0, 80) });
@@ -295,7 +303,7 @@ After searching, respond ONLY with valid JSON, no markdown, no commentary:
               trace.push({ round: rounds, ms: Date.now() - t0, stop: response.stop_reason });
               if (response.stop_reason !== "pause_turn") break;
               messages.push({ role: "assistant", content: response.content });
-              if (rounds >= MAX_SEARCH_ROUNDS || Date.now() - startedAt > SEARCH_BUDGET_MS) {
+              if (rounds >= MAX_SEARCH_ROUNDS || Date.now() - startedAt > searchBudget) {
                 exhausted = true;
                 break;
               }
@@ -310,7 +318,7 @@ After searching, respond ONLY with valid JSON, no markdown, no commentary:
               try {
                 response = await callClaudeStreaming(env.ANTHROPIC_API_KEY, {
                   model: MODEL, max_tokens: 1500, messages,
-                }, FINALIZE_TIMEOUT_MS);
+                }, finalizeBudget);
                 trace.push({ round: "finalize", ms: Date.now() - t0, stop: response.stop_reason });
               } catch (e) {
                 trace.push({ round: "finalize", ms: Date.now() - t0, error: String(e.message).slice(0, 120) });
