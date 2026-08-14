@@ -15,6 +15,11 @@
 const CLAUDE_API = "https://api.anthropic.com/v1/messages";
 const MODEL      = "claude-sonnet-5";
 
+// /critics budget: a phone is waiting on the response, so bound how long the
+// search may run before we force it to answer with what it has.
+const MAX_SEARCH_ROUNDS = 2;
+const SEARCH_BUDGET_MS  = 90000;
+
 export default {
   async fetch(request, env, ctx) {
 
@@ -235,7 +240,7 @@ Strict rules:
 After searching, respond ONLY with valid JSON, no markdown, no commentary:
 {"found": true, "criticNotes": [{"source": "Wine Spectator", "critic": "name or null", "score": 93, "note": "...", "url": "https://...", "vintageMatch": true}]}`;
 
-        const tools = [{ type: "web_search_20260209", name: "web_search", max_uses: 4 }];
+        const tools = [{ type: "web_search_20260209", name: "web_search", max_uses: 3 }];
         const messages = [{ role: "user", content: prompt }];
 
         // The search takes 1-2 minutes, but iOS Safari aborts any request
@@ -250,15 +255,42 @@ After searching, respond ONLY with valid JSON, no markdown, no commentary:
           const keepalive = setInterval(() => { writer.write(enc.encode(" ")).catch(() => {}); }, 15000);
           let payload;
           try {
-            let response = await callClaudeStreaming(env.ANTHROPIC_API_KEY, {
-              model: MODEL, max_tokens: 4000, tools, messages,
-            });
-            // The server-side search loop may pause; continue until it finishes.
-            for (let i = 0; i < 3 && response.stop_reason === "pause_turn"; i++) {
-              messages.push({ role: "assistant", content: response.content });
+            // Each paused turn costs another full round trip, so cap both the
+            // number of rounds and the wall-clock spent searching — a phone is
+            // waiting on this.
+            const startedAt = Date.now();
+            let response, rounds = 0, exhausted = false;
+            const trace = [];
+
+            for (;;) {
+              const t0 = Date.now();
               response = await callClaudeStreaming(env.ANTHROPIC_API_KEY, {
                 model: MODEL, max_tokens: 4000, tools, messages,
               });
+              rounds++;
+              trace.push({ round: rounds, ms: Date.now() - t0, stop: response.stop_reason });
+              if (response.stop_reason !== "pause_turn") break;
+              messages.push({ role: "assistant", content: response.content });
+              if (rounds >= MAX_SEARCH_ROUNDS || Date.now() - startedAt > SEARCH_BUDGET_MS) {
+                exhausted = true;
+                break;
+              }
+            }
+
+            // Out of budget mid-search: ask for the JSON with no tools attached
+            // so it has to answer from what it already found instead of leaving
+            // us with a paused turn and no result at all.
+            if (exhausted) {
+              messages.push({ role: "user", content: `Stop searching. Using only the reviews you have already found, respond now with the JSON described earlier. If you found none, return {"found": false, "criticNotes": []}.` });
+              const t0 = Date.now();
+              try {
+                response = await callClaudeStreaming(env.ANTHROPIC_API_KEY, {
+                  model: MODEL, max_tokens: 1500, messages,
+                });
+                trace.push({ round: "finalize", ms: Date.now() - t0, stop: response.stop_reason });
+              } catch (e) {
+                trace.push({ round: "finalize", ms: Date.now() - t0, error: String(e.message).slice(0, 120) });
+              }
             }
 
             // The final JSON is in the last text block (earlier ones interleave with searches).
@@ -281,7 +313,10 @@ After searching, respond ONLY with valid JSON, no markdown, no commentary:
 
             payload = notes.length
               ? { criticNotes: notes, criticSource: "web", found: true }
-              : { criticNotes: [], criticSource: "none", found: false };
+              // Nothing found is a legitimate answer, but it is also what a
+              // budget overrun looks like — keep the trace so the two are
+              // tellable apart from the outside. The client ignores it.
+              : { criticNotes: [], criticSource: "none", found: false, trace };
           } catch (err) {
             console.error("Critics error:", err);
             payload = { error: "Internal error: " + err.message };
