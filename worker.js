@@ -293,10 +293,11 @@ After searching, respond ONLY with valid JSON, no markdown, no commentary:
               }
             }
 
-            // The final JSON is in the last text block (earlier ones interleave with searches).
-            const textBlocks = (response.content || []).filter(b => b.type === "text");
-            const text   = textBlocks.length ? textBlocks[textBlocks.length - 1].text : "{}";
-            const parsed = safeParseJSON(text);
+            // Cited answers get split across several text blocks, so the JSON
+            // is often spread over more than one — parse across all of them.
+            const texts  = (response.content || []).filter(b => b.type === "text").map(b => b.text || "");
+            const parsed = extractCriticsJSON(texts);
+            trace.push({ textBlocks: texts.length, chars: texts.join("").length, parsed: !parsed.error });
 
             const notes = (Array.isArray(parsed.criticNotes) ? parsed.criticNotes : [])
               .map(n => ({
@@ -429,6 +430,21 @@ async function callClaude(apiKey, body) {
     throw new Error(`Claude API ${res.status}: ${err}`);
   }
   return res.json();
+}
+
+// The reply may arrive as one clean JSON block, as JSON wrapped in prose, or —
+// when the model cites its sources — split across several text blocks. Try the
+// individual blocks newest-first, then the whole thing joined together, and
+// accept the first candidate that actually looks like our result shape.
+function extractCriticsJSON(texts) {
+  if (!texts.length) return { error: "no text blocks" };
+  const candidates = [...texts].reverse();
+  candidates.push(texts.join(""));
+  for (const candidate of candidates) {
+    const parsed = safeParseJSON(candidate);
+    if (Array.isArray(parsed.criticNotes) || typeof parsed.found === "boolean") return parsed;
+  }
+  return { error: "no result JSON found" };
 }
 
 function safeParseJSON(text) {
