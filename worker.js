@@ -250,13 +250,13 @@ After searching, respond ONLY with valid JSON, no markdown, no commentary:
           const keepalive = setInterval(() => { writer.write(enc.encode(" ")).catch(() => {}); }, 15000);
           let payload;
           try {
-            let response = await callClaude(env.ANTHROPIC_API_KEY, {
+            let response = await callClaudeStreaming(env.ANTHROPIC_API_KEY, {
               model: MODEL, max_tokens: 4000, tools, messages,
             });
             // The server-side search loop may pause; continue until it finishes.
             for (let i = 0; i < 3 && response.stop_reason === "pause_turn"; i++) {
               messages.push({ role: "assistant", content: response.content });
-              response = await callClaude(env.ANTHROPIC_API_KEY, {
+              response = await callClaudeStreaming(env.ANTHROPIC_API_KEY, {
                 model: MODEL, max_tokens: 4000, tools, messages,
               });
             }
@@ -309,6 +309,74 @@ After searching, respond ONLY with valid JSON, no markdown, no commentary:
 };
 
 // ── Helpers ───────────────────────────────────────────────────────
+
+// A web-search turn can take longer than the 100s Cloudflare allows a
+// subrequest to sit silent, which comes back as a 524. Streaming keeps
+// bytes flowing, so we consume the SSE events and rebuild the message.
+async function callClaudeStreaming(apiKey, body) {
+  const res = await fetch(CLAUDE_API, {
+    method: "POST",
+    headers: {
+      "Content-Type":      "application/json",
+      "x-api-key":         apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({ ...body, stream: true }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Claude API ${res.status}: ${err}`);
+  }
+
+  const reader  = res.body.getReader();
+  const decoder = new TextDecoder();
+  const blocks      = [];
+  const partialJSON = [];
+  let stopReason = null;
+  let buffer     = "";
+
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop();
+
+    for (const line of lines) {
+      if (!line.startsWith("data:")) continue;
+      const raw = line.slice(5).trim();
+      if (!raw || raw === "[DONE]") continue;
+
+      let evt;
+      try { evt = JSON.parse(raw); } catch { continue; }
+
+      if (evt.type === "content_block_start") {
+        blocks[evt.index]      = evt.content_block;
+        partialJSON[evt.index] = "";
+      } else if (evt.type === "content_block_delta") {
+        const b = blocks[evt.index];
+        if (!b) continue;
+        const d = evt.delta || {};
+        if      (d.type === "text_delta")       b.text     = (b.text     || "") + d.text;
+        else if (d.type === "thinking_delta")   b.thinking = (b.thinking || "") + d.thinking;
+        else if (d.type === "input_json_delta") partialJSON[evt.index] += d.partial_json || "";
+        else if (d.type === "citations_delta" && d.citation) (b.citations ||= []).push(d.citation);
+      } else if (evt.type === "content_block_stop") {
+        const b = blocks[evt.index];
+        if (b && partialJSON[evt.index]) {
+          try { b.input = JSON.parse(partialJSON[evt.index]); } catch { /* keep what we have */ }
+        }
+      } else if (evt.type === "message_delta") {
+        if (evt.delta?.stop_reason) stopReason = evt.delta.stop_reason;
+      } else if (evt.type === "error") {
+        throw new Error(`Claude API stream error: ${JSON.stringify(evt.error)}`);
+      }
+    }
+  }
+
+  return { content: blocks.filter(Boolean), stop_reason: stopReason };
+}
 
 async function callClaude(apiKey, body) {
   const res = await fetch(CLAUDE_API, {
