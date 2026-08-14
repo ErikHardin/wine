@@ -1,10 +1,11 @@
 /**
  * ECH Wine Cellar — Cloudflare Worker
- * Handles four routes:
+ * Handles five routes:
  *   POST /scan        — Claude Vision label scan (single bottle)
  *   POST /scan-multi  — Claude Vision label scan (multiple bottles)
  *   POST /enrich      — Claude AI wine data enrichment
- *   POST /pairings    — Claude AI food pairings + drink window + critic notes
+ *   POST /pairings    — Claude AI food pairings + drink window
+ *   POST /critics     — real critic reviews found via web search
  *
  * Environment variables (set in Cloudflare dashboard):
  *   ANTHROPIC_API_KEY  — your Anthropic API key
@@ -12,7 +13,7 @@
  */
 
 const CLAUDE_API = "https://api.anthropic.com/v1/messages";
-const MODEL      = "claude-sonnet-4-20250514";
+const MODEL      = "claude-sonnet-5";
 
 export default {
   async fetch(request, env) {
@@ -188,29 +189,19 @@ Rules:
 
         const response = await callClaude(env.ANTHROPIC_API_KEY, {
           model: MODEL,
-          max_tokens: 1800,
+          max_tokens: 800,
           messages: [{
             role: "user",
-            content: `You are an expert sommelier and wine critic. For the wine "${wineDesc}"${details ? ` (${details})` : ""}, provide:
+            content: `You are an expert sommelier. For the wine "${wineDesc}"${details ? ` (${details})` : ""}, provide:
 1. Exactly 5 specific food pairing suggestions (3-5 words each, specific dishes not just ingredients)
 2. A prime drinking window description (1-2 sentences)
 3. One serving tip (1 sentence, temperature and decanting)
-4. Exactly 3 critic-style tasting notes grounded in the specific grape variety and region. Each note 2-3 sentences in that publication's distinctive voice, referencing the terroir, climate, and typical characteristics of the grape(s) and appellation:
-   - Wine Advocate: bold, analytical, fruit-forward, mentions structure and aging potential
-   - Wine Spectator: accessible, balanced, food-friendly framing
-   - Vinous: lyrical, terroir-focused, emphasizes texture and energy
-   Scores within a 4-point range of each other (85-100).
 
 Respond ONLY with valid JSON, no markdown:
 {
   "pairings": ["pairing1","pairing2","pairing3","pairing4","pairing5"],
   "drinkWindow": "sentence about ideal drinking window",
-  "servingTip": "sentence about how to serve",
-  "criticNotes": [
-    {"source": "Wine Advocate",  "score": 94, "note": "..."},
-    {"source": "Wine Spectator", "score": 93, "note": "..."},
-    {"source": "Vinous",         "score": 92, "note": "..."}
-  ]
+  "servingTip": "sentence about how to serve"
 }`,
           }],
         });
@@ -221,6 +212,8 @@ Respond ONLY with valid JSON, no markdown:
       }
 
       // ── Route: /critics ────────────────────────────────────────
+      // Searches the web for real published critic reviews. Never invents
+      // notes: if no genuine reviews are found it returns found:false.
       if (path === "/critics") {
         const { winery, wine, vintage, varietal, region } = await request.json();
         if (!wine) return jsonError("Missing wine name", 400, corsHeaders);
@@ -228,55 +221,56 @@ Respond ONLY with valid JSON, no markdown:
         const wineDesc = [winery, wine, vintage].filter(Boolean).join(" ");
         const details  = [varietal, region].filter(Boolean).join(", ");
 
-        // Try CellarTracker community API
-        if (env.CELLARTRACKER_USER) {
-          try {
-            const ctQuery = encodeURIComponent(wineDesc);
-            const ctUrl = `https://www.cellartracker.com/api.asp?q=list&type=Wine&wine=${ctQuery}&format=json&user=${encodeURIComponent(env.CELLARTRACKER_USER)}&password=${encodeURIComponent(env.CELLARTRACKER_PASS||"")}`;
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 4000);
-            const ctRes = await fetch(ctUrl, { signal: controller.signal });
-            clearTimeout(timeout);
-            if (ctRes.ok) {
-              const ctData = await ctRes.json();
-              const wines = Array.isArray(ctData) ? ctData : (ctData?.Table === "Wine" ? [ctData] : []);
-              const match = wines[0];
-              if (match?.iWine) {
-                const notesUrl = `https://www.cellartracker.com/api.asp?q=list&type=CommunityTastingNotes&iWine=${match.iWine}&format=json&user=${encodeURIComponent(env.CELLARTRACKER_USER)}&password=${encodeURIComponent(env.CELLARTRACKER_PASS||"")}`;
-                const notesController = new AbortController();
-                const notesTimeout = setTimeout(() => notesController.abort(), 4000);
-                const notesRes = await fetch(notesUrl, { signal: notesController.signal });
-                clearTimeout(notesTimeout);
-                if (notesRes.ok) {
-                  const notesData = await notesRes.json();
-                  const notesList = Array.isArray(notesData) ? notesData : [];
-                  if (notesList.length) {
-                    const top = notesList.slice(0, 3);
-                    return jsonResponse({
-                      criticNotes: top.map(n => ({
-                        source: n.Reviewer || "CellarTracker Community",
-                        score:  n.Valuation ? Math.round(parseFloat(n.Valuation)) : null,
-                        note:   n.Note || "",
-                        criticSource: "community",
-                      })),
-                      criticSource: "community",
-                    }, corsHeaders);
-                  }
-                  // CT found the wine but no tasting notes — use community score in AI prompt
-                  const ctScore = match.CommunityCount > 0 ? Math.round(parseFloat(match.CommunityAvg || 0)) : null;
-                  if (ctScore) {
-                    const ctNotes = await generateCriticNotes(env.ANTHROPIC_API_KEY, wineDesc, details, ctScore);
-                    return jsonResponse({ criticNotes: ctNotes, criticSource: "community" }, corsHeaders);
-                  }
-                }
-              }
-            }
-          } catch (_) { /* fall through to AI */ }
+        const prompt = `Search the web for professional critic reviews of the wine "${wineDesc}"${details ? ` (${details})` : ""}.
+
+Look for scores and tasting notes from professional wine critics and publications — e.g. Wine Advocate / Robert Parker, Wine Spectator, Vinous, James Suckling, Decanter, Jancis Robinson, Wine Enthusiast. Retailer or aggregator pages that quote a named publication's score and review are acceptable sources; attribute the note to the original publication.
+
+Strict rules:
+- Report ONLY scores and review text you actually found in the search results. Never invent, estimate, or extrapolate a score or quote.
+- Each note: the publication as "source", the individual critic's name as "critic" if known (else null), the 100-point score as an integer (else null), a faithful excerpt or close summary of the review in 40 words or less as "note", and the URL of the page you found it on as "url" (else null).
+- Prefer reviews of the exact vintage${vintage ? ` (${vintage})` : ""}. If a found review is for a different vintage of the same wine, you may include it but set "vintageMatch" to false.
+- Up to 3 notes from distinct publications.
+- If you cannot find any genuine published review, return {"found": false, "criticNotes": []}.
+
+After searching, respond ONLY with valid JSON, no markdown, no commentary:
+{"found": true, "criticNotes": [{"source": "Wine Spectator", "critic": "name or null", "score": 93, "note": "...", "url": "https://...", "vintageMatch": true}]}`;
+
+        const tools = [{ type: "web_search_20260209", name: "web_search", max_uses: 4 }];
+        const messages = [{ role: "user", content: prompt }];
+
+        let response = await callClaude(env.ANTHROPIC_API_KEY, {
+          model: MODEL, max_tokens: 4000, tools, messages,
+        });
+        // The server-side search loop may pause; continue until it finishes.
+        for (let i = 0; i < 3 && response.stop_reason === "pause_turn"; i++) {
+          messages.push({ role: "assistant", content: response.content });
+          response = await callClaude(env.ANTHROPIC_API_KEY, {
+            model: MODEL, max_tokens: 4000, tools, messages,
+          });
         }
 
-        // Fallback: pure AI-generated notes
-        const aiNotes = await generateCriticNotes(env.ANTHROPIC_API_KEY, wineDesc, details, null);
-        return jsonResponse({ criticNotes: aiNotes, criticSource: "ai" }, corsHeaders);
+        // The final JSON is in the last text block (earlier ones interleave with searches).
+        const textBlocks = (response.content || []).filter(b => b.type === "text");
+        const text   = textBlocks.length ? textBlocks[textBlocks.length - 1].text : "{}";
+        const parsed = safeParseJSON(text);
+
+        const notes = (Array.isArray(parsed.criticNotes) ? parsed.criticNotes : [])
+          .map(n => ({
+            source:       String(n.source ?? "").trim(),
+            critic:       n.critic ? String(n.critic).trim() : null,
+            score:        Number.isFinite(+n.score) && +n.score >= 50 && +n.score <= 100 ? Math.round(+n.score) : null,
+            note:         String(n.note ?? "").trim(),
+            url:          typeof n.url === "string" && /^https?:\/\//.test(n.url) ? n.url : null,
+            vintageMatch: n.vintageMatch !== false,
+            criticSource: "web",
+          }))
+          .filter(n => n.source && n.note)
+          .slice(0, 3);
+
+        if (!notes.length) {
+          return jsonResponse({ criticNotes: [], criticSource: "none", found: false }, corsHeaders);
+        }
+        return jsonResponse({ criticNotes: notes, criticSource: "web", found: true }, corsHeaders);
       }
 
       return new Response("Not found", { status: 404, headers: corsHeaders });
@@ -289,30 +283,6 @@ Respond ONLY with valid JSON, no markdown:
 };
 
 // ── Helpers ───────────────────────────────────────────────────────
-
-async function generateCriticNotes(apiKey, wineDesc, details, anchorScore) {
-  const scoreHint = anchorScore
-    ? ` Community consensus score is ${anchorScore}/100 — keep all three scores within 3 points of that.`
-    : " Scores within a 4-point range of each other (85-100).";
-  const response = await callClaude(apiKey, {
-    model: MODEL,
-    max_tokens: 1400,
-    messages: [{
-      role: "user",
-      content: `You are an expert wine critic. For the wine "${wineDesc}"${details ? ` (${details})` : ""}, write exactly 3 critic-style tasting notes grounded in the specific grape variety and region. Ground each note in the terroir, climate, and signature characteristics of the grape(s) and appellation — avoid generic descriptors. Each note 2-3 sentences in that publication's distinctive voice:
-   - Wine Advocate: bold, analytical, fruit-forward, mentions structure and aging potential
-   - Wine Spectator: accessible, balanced, food-friendly framing
-   - Vinous: lyrical, terroir-focused, emphasizes texture and energy
-${scoreHint}
-
-Respond ONLY with valid JSON, no markdown:
-{"criticNotes":[{"source":"Wine Advocate","score":94,"note":"..."},{"source":"Wine Spectator","score":93,"note":"..."},{"source":"Vinous","score":92,"note":"..."}]}`
-    }],
-  });
-  const text = response.content?.find(b => b.type === "text")?.text || "{}";
-  const parsed = safeParseJSON(text);
-  return (parsed.criticNotes || []).map(n => ({ ...n, criticSource: "ai" }));
-}
 
 async function callClaude(apiKey, body) {
   const res = await fetch(CLAUDE_API, {
@@ -333,9 +303,16 @@ async function callClaude(apiKey, body) {
 }
 
 function safeParseJSON(text) {
+  const cleaned = text.replace(/```json|```/g, "").trim();
   try {
-    return JSON.parse(text.replace(/```json|```/g, "").trim());
+    return JSON.parse(cleaned);
   } catch {
+    // Fall back to the outermost {...} in case the model added prose around it
+    const start = cleaned.indexOf("{");
+    const end   = cleaned.lastIndexOf("}");
+    if (start !== -1 && end > start) {
+      try { return JSON.parse(cleaned.slice(start, end + 1)); } catch {}
+    }
     return { error: "Failed to parse response" };
   }
 }

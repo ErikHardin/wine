@@ -912,6 +912,7 @@ function ce(tag,props={},children=[]){
   return e;
 }
 function html(h){ const d=document.createElement("div"); d.innerHTML=h; return d.firstElementChild; }
+function esc(s){ const d=document.createElement("div"); d.textContent=s==null?"":String(s); return d.innerHTML; }
 
 // ── Firebase listeners ───────────────────────────────────────────
 async function revertClosetToSequentialSlots() {
@@ -1167,11 +1168,6 @@ async function fetchPairingsForWine(wine) {
         servingTip:  data.servingTip  || null,
         pairingsAt:  Date.now(),
       };
-      if (data.criticNotes?.length) {
-        updates.criticNotes   = data.criticNotes;
-        updates.criticSource  = data.criticSource || "ai";
-        updates.criticNotesAt = Date.now();
-      }
       await updateWine(wine.id, updates);
     }
   } catch(e) { console.warn("Pairings fetch failed:", e); }
@@ -1191,7 +1187,14 @@ async function fetchCriticsForWine(wine) {
   if (data.criticNotes?.length) {
     await updateWine(wine.id, {
       criticNotes:   data.criticNotes,
-      criticSource:  data.criticSource || "ai",
+      criticSource:  data.criticSource || "web",
+      criticNotesAt: Date.now(),
+    });
+  } else if (data.found === false) {
+    // Searched, nothing published exists — remember that so we don't re-search every open
+    await updateWine(wine.id, {
+      criticNotes:   [],
+      criticSource:  "none",
       criticNotesAt: Date.now(),
     });
   }
@@ -1407,7 +1410,7 @@ function renderImportModal() {
       for(const w of importRows){
         setProgress(`Fetching pairings… ${pairCount} / ${importRows.length}`);
         await fetchPairingsForWine(w);
-        fetchCriticsForWine(w);
+        fetchCriticsForWine(w).catch(e=>console.warn("Critics fetch failed:",e));
         pairCount++;
       }
       importScreen="done"; renderImportModal();
@@ -3146,7 +3149,7 @@ function renderAddWineModal() {
       };
       await saveWine(wine);
       root.innerHTML="";
-      fetchCriticsForWine(wine);
+      fetchCriticsForWine(wine).catch(e=>console.warn("Critics fetch failed:",e));
     };
     actions.appendChild(cancel); actions.appendChild(save);
     sheet.appendChild(actions);
@@ -3285,7 +3288,7 @@ function renderAddWineModal() {
         if(!validate()) return;
         scanAnother.textContent="Saving…"; scanAnother.disabled=true;
         const wine=await buildWineObj(); await saveWine(wine);
-        fetchCriticsForWine(wine);
+        fetchCriticsForWine(wine).catch(e=>console.warn("Critics fetch failed:",e));
         scanQueueSaved++;
         startMultiScanCamera();
       };
@@ -3294,7 +3297,7 @@ function renderAddWineModal() {
         if(!validate()) return;
         saveDone.textContent="Saving…"; saveDone.disabled=true;
         const wine=await buildWineObj(); await saveWine(wine);
-        fetchCriticsForWine(wine);
+        fetchCriticsForWine(wine).catch(e=>console.warn("Critics fetch failed:",e));
         root.innerHTML="";
       };
       const cancel=html(`<button style="background:none;border:none;color:var(--brown-pale);font-size:12px;cursor:pointer;padding:6px;text-align:center;width:100%">Cancel without saving</button>`);
@@ -3314,7 +3317,7 @@ function renderAddWineModal() {
         if(!validate()) return;
         saveQ.textContent="Saving…"; saveQ.disabled=true;
         const wine=await buildWineObj(); await saveWine(wine);
-        fetchCriticsForWine(wine);
+        fetchCriticsForWine(wine).catch(e=>console.warn("Critics fetch failed:",e));
         if(isLast){ root.innerHTML=""; return; }
         scanQueueIndex++; addWineForm={...scanQueue[scanQueueIndex]}; renderAddWineModal();
       };
@@ -3647,9 +3650,18 @@ function showWineProfile(wine) {
   criticsTitleRow.style.cssText="display:flex;align-items:center;gap:8px";
   criticsTitleRow.appendChild(html(`<div style="color:var(--red-wine);font-size:11px;letter-spacing:2px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">📰 Critics</div>`));
   const criticsBadge=document.createElement("span");
-  const isComm=wine.criticSource==="community";
-  criticsBadge.style.cssText=`background:${isComm?"rgba(90,138,58,0.12)":"rgba(184,134,11,0.12)"};color:${isComm?"#5a8a3a":"var(--gold)"};font-size:9px;padding:2px 7px;border-radius:8px;font-weight:700`;
-  criticsBadge.textContent=isComm?"Community Data":"Estimated";
+  function criticBadgeInfo(src){
+    if(src==="web")       return {label:"Web Reviews",    color:"#5a8a3a",          bg:"rgba(90,138,58,0.12)"};
+    if(src==="community") return {label:"Community Data", color:"#5a8a3a",          bg:"rgba(90,138,58,0.12)"};
+    if(src==="none")      return {label:"Not Found",      color:"var(--brown-pale)", bg:"rgba(120,100,80,0.10)"};
+    return {label:"Estimated", color:"var(--gold)", bg:"rgba(184,134,11,0.12)"};
+  }
+  function setCriticsBadge(src){
+    const b=criticBadgeInfo(src);
+    criticsBadge.style.cssText=`background:${b.bg};color:${b.color};font-size:9px;padding:2px 7px;border-radius:8px;font-weight:700`;
+    criticsBadge.textContent=b.label;
+  }
+  setCriticsBadge(wine.criticSource);
   criticsTitleRow.appendChild(criticsBadge);
   criticsHeader.appendChild(criticsTitleRow);
 
@@ -3662,25 +3674,38 @@ function showWineProfile(wine) {
 
   function renderCriticCards(notes, src){
     criticsContent.innerHTML="";
-    if(!notes?.length) return;
-    const n=notes[Math.floor(Math.random()*notes.length)];
-    const isC=src==="community"||(n.criticSource==="community");
-    criticsBadge.style.cssText=`background:${isC?"rgba(90,138,58,0.12)":"rgba(184,134,11,0.12)"};color:${isC?"#5a8a3a":"var(--gold)"};font-size:9px;padding:2px 7px;border-radius:8px;font-weight:700`;
-    criticsBadge.textContent=isC?"Community Data":"Estimated";
-    criticsContent.appendChild(html(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <div style="color:var(--brown-mid);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">${n.source}</div>
-      ${n.score?`<span style="background:${scoreColor(n.score)}18;border:1px solid ${scoreColor(n.score)}44;color:${scoreColor(n.score)};font-size:11px;font-weight:800;font-family:monospace;padding:2px 8px;border-radius:8px">${n.score}</span>`:""}
-    </div>`));
-    criticsContent.appendChild(html(`<div style="color:var(--brown-mid);font-size:13px;line-height:1.7;font-style:italic">${n.note}</div>`));
+    setCriticsBadge(src);
+    if(!notes?.length){
+      if(src==="none") criticsContent.innerHTML=`<div style="color:var(--brown-pale);font-size:12px;font-style:italic">No published critic reviews found for this wine.</div>`;
+      return;
+    }
+    notes.slice(0,3).forEach((n,i)=>{
+      const card=document.createElement("div");
+      if(i>0) card.style.cssText="margin-top:10px;padding-top:10px;border-top:1px solid rgba(139,38,53,0.12)";
+      const who=esc(n.source)+(n.critic?` · ${esc(n.critic)}`:"");
+      card.appendChild(html(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="color:var(--brown-mid);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">${who}</div>
+        ${n.score?`<span style="background:${scoreColor(n.score)}18;border:1px solid ${scoreColor(n.score)}44;color:${scoreColor(n.score)};font-size:11px;font-weight:800;font-family:monospace;padding:2px 8px;border-radius:8px">${n.score}${n.vintageMatch===false?"*":""}</span>`:""}
+      </div>`));
+      card.appendChild(html(`<div style="color:var(--brown-mid);font-size:13px;line-height:1.7;font-style:italic">${esc(n.note)}</div>`));
+      const meta=[];
+      if(n.vintageMatch===false) meta.push(`<span style="color:var(--brown-pale)">*different vintage</span>`);
+      if(n.url) meta.push(`<a href="${esc(n.url)}" target="_blank" rel="noopener" style="color:var(--brown-pale);text-decoration:none">Source ↗</a>`);
+      if(meta.length) card.appendChild(html(`<div style="display:flex;gap:12px;margin-top:5px;font-size:10px">${meta.join("")}</div>`));
+      criticsContent.appendChild(card);
+    });
   }
 
   async function loadCritics(showSpinner){
-    if(showSpinner) criticsContent.innerHTML=`<div style="display:flex;align-items:center;gap:10px;color:var(--brown-mid);font-size:13px;font-style:italic"><div class="spinner"></div>Fetching critic notes…</div>`;
+    if(showSpinner) criticsContent.innerHTML=`<div style="display:flex;align-items:center;gap:10px;color:var(--brown-mid);font-size:13px;font-style:italic"><div class="spinner"></div>Searching for critic reviews…</div>`;
     try {
       const data=await callCriticsAPI(wine.winery,wine.wine,wine.vintage,wine.varietal,wine.region);
       if(data.criticNotes?.length){
-        await updateWine(wine.id,{criticNotes:data.criticNotes,criticSource:data.criticSource||"ai",criticNotesAt:Date.now()});
-        renderCriticCards(data.criticNotes,data.criticSource);
+        await updateWine(wine.id,{criticNotes:data.criticNotes,criticSource:data.criticSource||"web",criticNotesAt:Date.now()});
+        renderCriticCards(data.criticNotes,data.criticSource||"web");
+      } else if(data.found===false){
+        await updateWine(wine.id,{criticNotes:[],criticSource:"none",criticNotesAt:Date.now()});
+        renderCriticCards([],"none");
       } else { criticsContent.innerHTML=""; }
     } catch(e){
       criticsContent.innerHTML=`<div style="color:var(--brown-pale);font-size:12px;font-style:italic">Couldn't load notes — tap ↻ to retry.</div>`;
@@ -3691,6 +3716,8 @@ function showWineProfile(wine) {
 
   if(wine.criticNotes?.length){
     renderCriticCards(wine.criticNotes,wine.criticSource);
+  } else if(wine.criticSource==="none"){
+    renderCriticCards([],"none");
   } else {
     loadCritics(true);
   }
@@ -3929,20 +3956,23 @@ function renderEditWineModal(wine) {
   // Critic notes reference (fetched after save, read-only)
   if(wine.criticNotes?.length){
     const editCriticWrap=document.createElement("div");
-    const isCommE=wine.criticSource==="community";
+    const srcE=wine.criticSource;
+    const badgeE=srcE==="web"?{label:"Web Reviews",color:"#5a8a3a",bg:"rgba(90,138,58,0.12)"}
+                :srcE==="community"?{label:"Community Data",color:"#5a8a3a",bg:"rgba(90,138,58,0.12)"}
+                :{label:"Estimated",color:"var(--gold)",bg:"rgba(184,134,11,0.12)"};
     const labelRow=document.createElement("div"); labelRow.style.cssText="display:flex;align-items:center;gap:6px;margin-bottom:4px";
     labelRow.appendChild(html(`<div class="field-label" style="margin-bottom:0">Critic Notes</div>`));
-    const ecBadge=html(`<span style="background:${isCommE?"rgba(90,138,58,0.12)":"rgba(184,134,11,0.12)"};color:${isCommE?"#5a8a3a":"var(--gold)"};font-size:9px;padding:1px 6px;border-radius:6px;font-weight:700">${isCommE?"Community Data":"Estimated"}</span>`);
+    const ecBadge=html(`<span style="background:${badgeE.bg};color:${badgeE.color};font-size:9px;padding:1px 6px;border-radius:6px;font-weight:700">${badgeE.label}</span>`);
     labelRow.appendChild(ecBadge);
     editCriticWrap.appendChild(labelRow);
-    const n=wine.criticNotes[Math.floor(Math.random()*wine.criticNotes.length)];
+    const n=wine.criticNotes[0];
     const card=document.createElement("div");
     card.style.cssText="background:rgba(139,38,53,0.05);border:1px solid rgba(139,38,53,0.12);border-radius:10px;padding:10px 12px;";
     card.appendChild(html(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-      <span style="color:var(--brown-mid);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">${n.source}</span>
+      <span style="color:var(--brown-mid);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">${esc(n.source)}${n.critic?` · ${esc(n.critic)}`:""}</span>
       ${n.score?`<span style="color:${scoreColor(n.score)};font-size:11px;font-weight:800;font-family:monospace">${n.score} pts</span>`:""}
     </div>`));
-    card.appendChild(html(`<div style="color:var(--brown-mid);font-size:12px;line-height:1.6;font-style:italic">${n.note}</div>`));
+    card.appendChild(html(`<div style="color:var(--brown-mid);font-size:12px;line-height:1.6;font-style:italic">${esc(n.note)}</div>`));
     editCriticWrap.appendChild(card);
     form.appendChild(editCriticWrap);
   }
@@ -4767,7 +4797,11 @@ async function startBulkRefresh(mode) {
       renderSettingsProgressBar();
       try {
         if (phase==="pairings") await fetchPairingsForWine(wine);
-        else await fetchCriticsForWine(wine);
+        else {
+          // Web searches cost money — skip wines with fresh web-sourced reviews
+          const fresh = wine.criticSource==="web" && wine.criticNotesAt && (Date.now()-wine.criticNotesAt) < 30*24*3600*1000;
+          if (!fresh) await fetchCriticsForWine(wine);
+        }
       } catch(_) { bulkRefreshProgress.errors++; }
       bulkRefreshProgress.done++;
       renderSettingsProgressBar();
