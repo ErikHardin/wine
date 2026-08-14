@@ -10,16 +10,12 @@
  * Environment variables (set in Cloudflare dashboard):
  *   ANTHROPIC_API_KEY   — your Anthropic API key
  *   ALLOWED_ORIGIN      — your app domain e.g. https://ech-technicalsolutions.com
- *   FIREBASE_DB_SECRET  — Realtime Database secret; enables /critics async mode,
- *                         where results are written straight to the wine record
- *                         instead of the caller waiting minutes for them
  */
 
 const CLAUDE_API = "https://api.anthropic.com/v1/messages";
-const FIREBASE_DB = "https://wine-5ab2d-default-rtdb.firebaseio.com";
 const MODEL      = "claude-sonnet-5";
 // Bump when changing behaviour worth identifying from /health.
-const BUILD      = "critics-async-2";
+const BUILD      = "critics-stream-3";
 
 // /critics budget: a phone is waiting on the response, so bound how long the
 // search may run before we force it to answer with what it has.
@@ -53,9 +49,6 @@ export default {
         build: BUILD,
         model: MODEL,
         hasAnthropicKey:  !!env.ANTHROPIC_API_KEY,
-        hasFirebaseSecret: !!env.FIREBASE_DB_SECRET,
-        firebaseSecretLength: (env.FIREBASE_DB_SECRET || "").length,
-        asyncCriticsAvailable: !!env.FIREBASE_DB_SECRET,
       }, corsHeaders);
     }
 
@@ -240,13 +233,9 @@ Respond ONLY with valid JSON, no markdown:
       // Searches the web for real published critic reviews. Never invents
       // notes: if no genuine reviews are found it returns found:false.
       if (path === "/critics") {
-        const { winery, wine, vintage, varietal, region, wineId } = await request.json();
+        const { winery, wine, vintage, varietal, region } = await request.json();
         if (!wine) return jsonError("Missing wine name", 400, corsHeaders);
 
-        // Async mode: the search takes minutes, so hand the caller an immediate
-        // answer and write the result into Firebase when it lands. Only a
-        // plain key is accepted — it goes straight into a database path.
-        const asyncMode = /^[A-Za-z0-9_-]{1,64}$/.test(String(wineId ?? "")) && !!env.FIREBASE_DB_SECRET;
 
         const wineDesc = [winery, wine, vintage].filter(Boolean).join(" ");
         const details  = [varietal, region].filter(Boolean).join(", ");
@@ -345,19 +334,7 @@ After searching, respond ONLY with valid JSON, no markdown, no commentary:
           return payload;
         };
 
-        // Async: answer straight away, keep searching, write the result to
-        // Firebase so the app picks it up through its existing listener.
-        if (asyncMode) {
-          const job = (async () => {
-            const payload = await runSearch();
-            if (payload.error) return; // leave the record alone so it can be retried
-            await writeCriticsToFirebase(env, wineId, payload);
-          })();
-          if (ctx?.waitUntil) ctx.waitUntil(job);
-          return jsonResponse({ status: "searching", wineId }, corsHeaders);
-        }
-
-        // Synchronous fallback: hold the connection open, trickling whitespace
+        // Hold the connection open, trickling whitespace
         // so neither iOS nor Cloudflare kills an idle request mid-search
         // (JSON.parse ignores the leading spaces).
         const { readable, writable } = new TransformStream();
@@ -477,32 +454,6 @@ async function callClaude(apiKey, body) {
   return res.json();
 }
 
-// Writes only the three critic fields onto an existing wine record. wineId is
-// validated by the caller before it reaches a database path.
-async function writeCriticsToFirebase(env, wineId, payload) {
-  const url = `${FIREBASE_DB}/wines/${wineId}.json?auth=${encodeURIComponent(env.FIREBASE_DB_SECRET)}`;
-
-  // PATCH creates the path if it is missing, so an unknown id would leave a
-  // stub record with critic notes and no wine on it. Only update what exists.
-  const existing = await fetch(`${url}&shallow=true`);
-  if (!existing.ok || (await existing.text()).trim() === "null") {
-    console.error(`Refusing to write critics: wine ${wineId} not found`);
-    return;
-  }
-
-  const res = await fetch(url, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      criticNotes:   payload.criticNotes || [],
-      criticSource:  payload.criticSource || "none",
-      criticNotesAt: Date.now(),
-    }),
-  });
-  if (!res.ok) {
-    console.error(`Firebase write failed ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  }
-}
 
 // The reply may arrive as one clean JSON block, as JSON wrapped in prose, or —
 // when the model cites its sources — split across several text blocks. Try the

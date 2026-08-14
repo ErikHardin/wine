@@ -1173,10 +1173,10 @@ async function fetchPairingsForWine(wine) {
   } catch(e) { console.warn("Pairings fetch failed:", e); }
 }
 
-async function callCriticsAPI(winery, wine, vintage, varietal, region, wineId) {
+async function callCriticsAPI(winery, wine, vintage, varietal, region) {
   const res = await fetch(`${WORKER_URL}/critics`, {
     method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({winery, wine, vintage, varietal, region, wineId}),
+    body: JSON.stringify({winery, wine, vintage, varietal, region}),
   });
   if (!res.ok) throw new Error(`Critics API ${res.status}`);
   // The response streams keepalive whitespace before the JSON, and errors
@@ -1186,21 +1186,22 @@ async function callCriticsAPI(winery, wine, vintage, varietal, region, wineId) {
   return data;
 }
 
-// Wines whose search the worker has accepted but not yet written back.
+// Searches in flight. The request is held open for the minute or two the
+// search takes, so the UI never blocks on it and results are persisted here
+// when they land — the wines listener then refreshes anything on screen.
 const criticsSearching = new Set();
 
 async function fetchCriticsForWine(wine) {
+  if (criticsSearching.has(wine.id)) return;   // already looking for this one
   criticsSearching.add(wine.id);
   let data;
   try {
-    data = await callCriticsAPI(wine.winery, wine.wine, wine.vintage, wine.varietal, wine.region, wine.id);
+    data = await callCriticsAPI(wine.winery, wine.wine, wine.vintage, wine.varietal, wine.region);
   } catch (e) {
     criticsSearching.delete(wine.id);
+    openProfileRefresh?.();
     throw e;
   }
-  // Async mode: the worker writes the result to Firebase itself, and the wines
-  // listener re-renders when it lands. Nothing to persist here.
-  if (data.status === "searching") return;
   criticsSearching.delete(wine.id);
   if (data.criticNotes?.length) {
     await updateWine(wine.id, {
@@ -3708,7 +3709,7 @@ function showWineProfile(wine) {
   }
 
   function renderSearching(){
-    criticsContent.innerHTML=`<div style="display:flex;align-items:center;gap:10px;color:var(--brown-mid);font-size:13px;font-style:italic"><div class="spinner"></div>Searching published reviews… this takes a few minutes. You can close this — notes appear when ready.</div>`;
+    criticsContent.innerHTML=`<div style="display:flex;align-items:center;gap:10px;color:var(--brown-mid);font-size:13px;font-style:italic"><div class="spinner"></div>Searching published reviews… takes a minute or two. Keep the app open — notes appear here when ready.</div>`;
   }
 
   function renderCriticCards(notes, src){
