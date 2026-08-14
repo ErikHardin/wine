@@ -19,8 +19,13 @@ const BUILD      = "critics-stream-3";
 
 // /critics budget: a phone is waiting on the response, so bound how long the
 // search may run before we force it to answer with what it has.
-const MAX_SEARCH_ROUNDS = 2;
-const SEARCH_BUDGET_MS  = 90000;
+const MAX_SEARCH_ROUNDS   = 2;
+// Measured against real wines: 54s / 126s / 155s / 160s to a good answer, and
+// one that ran 588s. The budget has to clear the slowest wine that actually
+// succeeds without waiting on the ones that never converge, so it sits above
+// the observed successes and well below the runaway.
+const SEARCH_BUDGET_MS    = 165000;
+const FINALIZE_TIMEOUT_MS = 25000;
 
 export default {
   async fetch(request, env, ctx) {
@@ -249,13 +254,14 @@ Strict rules:
 - Each note: the publication as "source", the individual critic's name as "critic" if known (else null), the score on the 100-point scale as an integer in "score" (else null), the score exactly as that critic published it in "scoreText" (e.g. "94", "17/20", "4.5/5") or null, a faithful excerpt or close summary of the review in 40 words or less as "note", and the URL of the page you found it on as "url" (else null).
 - Never convert between scoring scales. If a critic rates out of 20 or 5, leave "score" null and put the published rating in "scoreText".
 - Prefer reviews of the exact vintage${vintage ? ` (${vintage})` : ""}. If a found review is for a different vintage of the same wine, you may include it but set "vintageMatch" to false.
-- Up to 3 notes from distinct publications.
-- If you cannot find any genuine published review, return {"found": false, "criticNotes": []}.
+- Work quickly. Use at most two searches, and answer from what those turn up.
+- Return 1 to 3 notes. One good review is a complete answer — do not keep searching to fill three slots, and do not look for more publications once you have something solid.
+- If the first search or two turn up nothing genuine, return {"found": false, "criticNotes": []} rather than searching further. An empty answer quickly is better than a thorough one slowly.
 
-After searching, respond ONLY with valid JSON, no markdown, no commentary:
+Answer as soon as you have what you need. Respond ONLY with valid JSON, no markdown, no commentary:
 {"found": true, "criticNotes": [{"source": "Wine Spectator", "critic": "name or null", "score": 93, "scoreText": "93", "note": "...", "url": "https://...", "vintageMatch": true}]}`;
 
-        const tools = [{ type: "web_search_20260209", name: "web_search", max_uses: 3 }];
+        const tools = [{ type: "web_search_20260209", name: "web_search", max_uses: 2 }];
         const messages = [{ role: "user", content: prompt }];
 
         const runSearch = async () => {
@@ -265,19 +271,40 @@ After searching, respond ONLY with valid JSON, no markdown, no commentary:
             // number of rounds and the wall-clock spent searching — a phone is
             // waiting on this.
             const startedAt = Date.now();
+            // Overridable so the budget can be tuned, or shrunk under test,
+            // without a redeploy.
+            const searchBudget   = Number(env.SEARCH_BUDGET_MS)    || SEARCH_BUDGET_MS;
+            const finalizeBudget = Number(env.FINALIZE_TIMEOUT_MS) || FINALIZE_TIMEOUT_MS;
             let response, rounds = 0, exhausted = false;
             const trace = [];
 
             for (;;) {
               const t0 = Date.now();
-              response = await callClaudeStreaming(env.ANTHROPIC_API_KEY, {
-                model: MODEL, max_tokens: 4000, tools, messages,
-              });
+              // A round has to be cut off from the outside: the budget below
+              // only applies between rounds, so without this one slow round
+              // runs indefinitely and the app spins forever.
+              const left = searchBudget - (Date.now() - startedAt);
+              try {
+                response = await callClaudeStreaming(env.ANTHROPIC_API_KEY, {
+                  model: MODEL, max_tokens: 4000, tools, messages,
+                }, Math.max(left, 5000));
+              } catch (e) {
+                rounds++;
+                trace.push({ round: rounds, ms: Date.now() - t0, error: String(e.message).slice(0, 80) });
+                // With earlier rounds banked there is real search material to
+                // finalize from. With none, there is nothing to summarise, and
+                // asking anyway would invite an answer from memory rather than
+                // from sources — so report the timeout and let the user retry
+                // instead of recording a false "no reviews exist".
+                if (rounds > 1) { exhausted = true; break; }
+                const timedOut = e.name === "AbortError" || /abort/i.test(e.message || "");
+                throw timedOut ? new Error("Search timed out before finding anything") : e;
+              }
               rounds++;
               trace.push({ round: rounds, ms: Date.now() - t0, stop: response.stop_reason });
               if (response.stop_reason !== "pause_turn") break;
               messages.push({ role: "assistant", content: response.content });
-              if (rounds >= MAX_SEARCH_ROUNDS || Date.now() - startedAt > SEARCH_BUDGET_MS) {
+              if (rounds >= MAX_SEARCH_ROUNDS || Date.now() - startedAt > searchBudget) {
                 exhausted = true;
                 break;
               }
@@ -292,7 +319,7 @@ After searching, respond ONLY with valid JSON, no markdown, no commentary:
               try {
                 response = await callClaudeStreaming(env.ANTHROPIC_API_KEY, {
                   model: MODEL, max_tokens: 1500, messages,
-                });
+                }, finalizeBudget);
                 trace.push({ round: "finalize", ms: Date.now() - t0, stop: response.stop_reason });
               } catch (e) {
                 trace.push({ round: "finalize", ms: Date.now() - t0, error: String(e.message).slice(0, 120) });
@@ -322,7 +349,9 @@ After searching, respond ONLY with valid JSON, no markdown, no commentary:
               .slice(0, 3);
 
             payload = notes.length
-              ? { criticNotes: notes, criticSource: "web", found: true }
+              // trace rides along on success too — without it a slow but
+              // successful search is just as opaque as a failed one
+              ? { criticNotes: notes, criticSource: "web", found: true, trace }
               // Nothing found is a legitimate answer, but it is also what a
               // budget overrun looks like — keep the trace so the two are
               // tellable apart from the outside. The client ignores it.
@@ -371,9 +400,22 @@ After searching, respond ONLY with valid JSON, no markdown, no commentary:
 // A web-search turn can take longer than the 100s Cloudflare allows a
 // subrequest to sit silent, which comes back as a 524. Streaming keeps
 // bytes flowing, so we consume the SSE events and rebuild the message.
-async function callClaudeStreaming(apiKey, body) {
+async function callClaudeStreaming(apiKey, body, timeoutMs) {
+  // Covers the whole read, not just the connect: the stream can keep trickling
+  // tokens for minutes, and nothing else can stop it once it starts.
+  const abort = new AbortController();
+  const timer = timeoutMs ? setTimeout(() => abort.abort(), timeoutMs) : null;
+  try {
+    return await streamClaude(apiKey, body, abort.signal);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function streamClaude(apiKey, body, signal) {
   const res = await fetch(CLAUDE_API, {
     method: "POST",
+    signal,
     headers: {
       "Content-Type":      "application/json",
       "x-api-key":         apiKey,

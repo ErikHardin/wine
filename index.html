@@ -1173,10 +1173,16 @@ async function fetchPairingsForWine(wine) {
   } catch(e) { console.warn("Pairings fetch failed:", e); }
 }
 
+// Backstop only. The worker's own budget (~190s worst case) should always fire
+// first, because it degrades into a real answer or a clear timeout; this just
+// stops a wedged request from spinning the sheet forever.
+const CRITICS_TIMEOUT_MS = 240000;
+
 async function callCriticsAPI(winery, wine, vintage, varietal, region) {
   const res = await fetch(`${WORKER_URL}/critics`, {
     method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({winery, wine, vintage, varietal, region}),
+    signal: AbortSignal.timeout(CRITICS_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`Critics API ${res.status}`);
   // The response streams keepalive whitespace before the JSON, and errors
