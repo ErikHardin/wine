@@ -1196,10 +1196,15 @@ async function callCriticsAPI(winery, wine, vintage, varietal, region) {
 // search takes, so the UI never blocks on it and results are persisted here
 // when they land — the wines listener then refreshes anything on screen.
 const criticsSearching = new Set();
+// Wines searched this session. A result is stored on the wine record, so this
+// only matters for searches that failed — it stops every reopen from firing
+// (and paying for) the same doomed search again.
+const criticsAttempted = new Set();
 
 async function fetchCriticsForWine(wine) {
   if (criticsSearching.has(wine.id)) return;   // already looking for this one
   criticsSearching.add(wine.id);
+  criticsAttempted.add(wine.id);
   let data;
   try {
     data = await callCriticsAPI(wine.winery, wine.wine, wine.vintage, wine.varietal, wine.region);
@@ -3768,12 +3773,19 @@ function showWineProfile(wine) {
     }
   };
 
-  if(wine.criticNotes?.length){
-    renderCriticCards(wine.criticNotes,wine.criticSource);
-  } else if(wine.criticSource==="none"){
+  // Read the live record, not the copy captured when the card was drawn —
+  // a stale one has no notes on it and starts the search over again.
+  const stored = wines[wine.id] || wine;
+  if(stored.criticNotes?.length){
+    renderCriticCards(stored.criticNotes,stored.criticSource);
+  } else if(stored.criticSource==="none"){
     renderCriticCards([],"none");
   } else if(criticsSearching.has(wine.id)){
     renderSearching();          // a search kicked off elsewhere is still running
+  } else if(criticsAttempted.has(wine.id)){
+    // Already tried this session and it failed or timed out. Retry on demand
+    // rather than burning another search on every open.
+    criticsContent.innerHTML=`<div style="color:var(--brown-pale);font-size:12px;font-style:italic">Couldn't load notes — tap ↻ to retry.</div>`;
   } else {
     loadCritics(true);
   }
