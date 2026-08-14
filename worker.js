@@ -8,11 +8,15 @@
  *   POST /critics     — real critic reviews found via web search
  *
  * Environment variables (set in Cloudflare dashboard):
- *   ANTHROPIC_API_KEY  — your Anthropic API key
- *   ALLOWED_ORIGIN     — your app domain e.g. https://ech-technicalsolutions.com
+ *   ANTHROPIC_API_KEY   — your Anthropic API key
+ *   ALLOWED_ORIGIN      — your app domain e.g. https://ech-technicalsolutions.com
+ *   FIREBASE_DB_SECRET  — Realtime Database secret; enables /critics async mode,
+ *                         where results are written straight to the wine record
+ *                         instead of the caller waiting minutes for them
  */
 
 const CLAUDE_API = "https://api.anthropic.com/v1/messages";
+const FIREBASE_DB = "https://wine-5ab2d-default-rtdb.firebaseio.com";
 const MODEL      = "claude-sonnet-5";
 
 // /critics budget: a phone is waiting on the response, so bound how long the
@@ -220,8 +224,13 @@ Respond ONLY with valid JSON, no markdown:
       // Searches the web for real published critic reviews. Never invents
       // notes: if no genuine reviews are found it returns found:false.
       if (path === "/critics") {
-        const { winery, wine, vintage, varietal, region } = await request.json();
+        const { winery, wine, vintage, varietal, region, wineId } = await request.json();
         if (!wine) return jsonError("Missing wine name", 400, corsHeaders);
+
+        // Async mode: the search takes minutes, so hand the caller an immediate
+        // answer and write the result into Firebase when it lands. Only a
+        // plain key is accepted — it goes straight into a database path.
+        const asyncMode = /^[A-Za-z0-9_-]{1,64}$/.test(String(wineId ?? "")) && !!env.FIREBASE_DB_SECRET;
 
         const wineDesc = [winery, wine, vintage].filter(Boolean).join(" ");
         const details  = [varietal, region].filter(Boolean).join(", ");
@@ -232,27 +241,19 @@ Look for scores and tasting notes from professional wine critics and publication
 
 Strict rules:
 - Report ONLY scores and review text you actually found in the search results. Never invent, estimate, or extrapolate a score or quote.
-- Each note: the publication as "source", the individual critic's name as "critic" if known (else null), the 100-point score as an integer (else null), a faithful excerpt or close summary of the review in 40 words or less as "note", and the URL of the page you found it on as "url" (else null).
+- Each note: the publication as "source", the individual critic's name as "critic" if known (else null), the score on the 100-point scale as an integer in "score" (else null), the score exactly as that critic published it in "scoreText" (e.g. "94", "17/20", "4.5/5") or null, a faithful excerpt or close summary of the review in 40 words or less as "note", and the URL of the page you found it on as "url" (else null).
+- Never convert between scoring scales. If a critic rates out of 20 or 5, leave "score" null and put the published rating in "scoreText".
 - Prefer reviews of the exact vintage${vintage ? ` (${vintage})` : ""}. If a found review is for a different vintage of the same wine, you may include it but set "vintageMatch" to false.
 - Up to 3 notes from distinct publications.
 - If you cannot find any genuine published review, return {"found": false, "criticNotes": []}.
 
 After searching, respond ONLY with valid JSON, no markdown, no commentary:
-{"found": true, "criticNotes": [{"source": "Wine Spectator", "critic": "name or null", "score": 93, "note": "...", "url": "https://...", "vintageMatch": true}]}`;
+{"found": true, "criticNotes": [{"source": "Wine Spectator", "critic": "name or null", "score": 93, "scoreText": "93", "note": "...", "url": "https://...", "vintageMatch": true}]}`;
 
         const tools = [{ type: "web_search_20260209", name: "web_search", max_uses: 3 }];
         const messages = [{ role: "user", content: prompt }];
 
-        // The search takes 1-2 minutes, but iOS Safari aborts any request
-        // that receives no bytes for 60s. Stream the response: send headers
-        // now, trickle whitespace while searching (JSON.parse ignores it),
-        // then write the real payload and close.
-        const { readable, writable } = new TransformStream();
-        const writer = writable.getWriter();
-        const enc = new TextEncoder();
-
-        const work = (async () => {
-          const keepalive = setInterval(() => { writer.write(enc.encode(" ")).catch(() => {}); }, 15000);
+        const runSearch = async () => {
           let payload;
           try {
             // Each paused turn costs another full round trip, so cap both the
@@ -304,6 +305,9 @@ After searching, respond ONLY with valid JSON, no markdown, no commentary:
                 source:       String(n.source ?? "").trim(),
                 critic:       n.critic ? String(n.critic).trim() : null,
                 score:        Number.isFinite(+n.score) && +n.score >= 50 && +n.score <= 100 ? Math.round(+n.score) : null,
+                // Critics on a 20- or 5-point scale would otherwise lose their
+                // rating entirely to the 100-point check above.
+                scoreText:    n.scoreText ? String(n.scoreText).trim().slice(0, 12) : null,
                 note:         String(n.note ?? "").trim(),
                 url:          typeof n.url === "string" && /^https?:\/\//.test(n.url) ? n.url : null,
                 vintageMatch: n.vintageMatch !== false,
@@ -321,9 +325,34 @@ After searching, respond ONLY with valid JSON, no markdown, no commentary:
           } catch (err) {
             console.error("Critics error:", err);
             payload = { error: "Internal error: " + err.message };
-          } finally {
-            clearInterval(keepalive);
           }
+          return payload;
+        };
+
+        // Async: answer straight away, keep searching, write the result to
+        // Firebase so the app picks it up through its existing listener.
+        if (asyncMode) {
+          const job = (async () => {
+            const payload = await runSearch();
+            if (payload.error) return; // leave the record alone so it can be retried
+            await writeCriticsToFirebase(env, wineId, payload);
+          })();
+          if (ctx?.waitUntil) ctx.waitUntil(job);
+          return jsonResponse({ status: "searching", wineId }, corsHeaders);
+        }
+
+        // Synchronous fallback: hold the connection open, trickling whitespace
+        // so neither iOS nor Cloudflare kills an idle request mid-search
+        // (JSON.parse ignores the leading spaces).
+        const { readable, writable } = new TransformStream();
+        const writer = writable.getWriter();
+        const enc = new TextEncoder();
+        const keepalive = setInterval(() => { writer.write(enc.encode(" ")).catch(() => {}); }, 15000);
+
+        const work = (async () => {
+          let payload;
+          try { payload = await runSearch(); }
+          finally { clearInterval(keepalive); }
           await writer.write(enc.encode(JSON.stringify(payload))).catch(() => {});
           await writer.close().catch(() => {});
         })();
@@ -430,6 +459,24 @@ async function callClaude(apiKey, body) {
     throw new Error(`Claude API ${res.status}: ${err}`);
   }
   return res.json();
+}
+
+// Writes only the three critic fields onto an existing wine record. wineId is
+// validated by the caller before it reaches a database path.
+async function writeCriticsToFirebase(env, wineId, payload) {
+  const url = `${FIREBASE_DB}/wines/${wineId}.json?auth=${encodeURIComponent(env.FIREBASE_DB_SECRET)}`;
+  const res = await fetch(url, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      criticNotes:   payload.criticNotes || [],
+      criticSource:  payload.criticSource || "none",
+      criticNotesAt: Date.now(),
+    }),
+  });
+  if (!res.ok) {
+    console.error(`Firebase write failed ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  }
 }
 
 // The reply may arrive as one clean JSON block, as JSON wrapped in prose, or —
