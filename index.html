@@ -617,6 +617,18 @@ function generateSectionSlots(sectionDefs, defaultCols) {
 }
 
 const COLOR_OPTIONS   = ["Red","White","Rosé","Sparkling"];
+const DEFAULT_BOTTLE_SIZE = "750";
+const BOTTLE_SIZES    = [
+  {value:"187",  name:"Piccolo",       short:"187ml"},
+  {value:"375",  name:"Half Bottle",   short:"375ml"},
+  {value:"500",  name:"500ml",         short:"500ml"},
+  {value:"750",  name:"Standard",      short:"750ml"},
+  {value:"1500", name:"Magnum",        short:"1.5L"},
+  {value:"3000", name:"Double Magnum", short:"3L"},
+  {value:"4500", name:"Jeroboam",      short:"4.5L"},
+  {value:"6000", name:"Imperial",      short:"6L"},
+  {value:"9000", name:"Salmanazar",    short:"9L"},
+];
 const VARIETAL_OPTIONS= [
   "Aglianico","Albariño","Aligoté","Amarone Blend","Arneis",
   "Baga","Barbera","Blaufränkisch","Bonarda","Bordeaux Blend","Brunello di Montalcino",
@@ -709,6 +721,20 @@ function formatPrice(wine) {
   return `$${wine.price}/btl`;
 }
 
+// Full label for selects: "Magnum · 1.5L"
+function bottleSizeLabel(size) {
+  const s = BOTTLE_SIZES.find(b => b.value === String(size||DEFAULT_BOTTLE_SIZE));
+  return s ? `${s.name} · ${s.short}` : null;
+}
+
+// Short badge text, or null for standard/unset bottles so no pill renders
+function bottleSizeBadge(wine) {
+  const v = String(wine.size||DEFAULT_BOTTLE_SIZE);
+  if (v === DEFAULT_BOTTLE_SIZE) return null;
+  const s = BOTTLE_SIZES.find(b => b.value === v);
+  return s ? `${s.name} ${s.short}` : `${v}ml`;
+}
+
 // Approximate rates to USD — used when live API is unavailable
 const FX_FALLBACK = {EUR:1.12,GBP:1.28,AUD:0.64,CAD:0.73,CHF:1.12,JPY:0.0067,NZD:0.60,HKD:0.128,SGD:0.74};
 
@@ -787,6 +813,24 @@ function buildPriceField(form, formObj, queueItemRef) {
   priceRow.appendChild(curWrap); priceRow.appendChild(amtWrap);
   form.appendChild(priceRow);
   form.appendChild(preview);
+}
+
+// Bottle size select. queueItemRef is the scanQueue[i] object to keep in sync, or null.
+function buildBottleSizeField(container, formObj, queueItemRef) {
+  const wrap = document.createElement("div");
+  wrap.appendChild(html(`<div class="field-label">Bottle Size</div>`));
+  const sel = document.createElement("select"); sel.style.cssText = "width:100%";
+  BOTTLE_SIZES.forEach(b => {
+    const o = document.createElement("option");
+    o.value = b.value; o.textContent = bottleSizeLabel(b.value);
+    if (b.value === String(formObj.size||DEFAULT_BOTTLE_SIZE)) o.selected = true;
+    sel.appendChild(o);
+  });
+  sel.onchange = () => {
+    formObj.size = sel.value;
+    if (queueItemRef) queueItemRef.size = sel.value;
+  };
+  wrap.appendChild(sel); container.appendChild(wrap);
 }
 
 function buildVarietalField(container, formObj, extraOnChange) {
@@ -1315,6 +1359,7 @@ function parseWineCSV(text) {
     drinkTo:   idx("Drink Window End"),
     addedOn:   idx("Added On"),
     locRaw:    idx("Custom Bottle Location"),
+    sizeRaw:   [idx("Bottle Size"), idx("Format"), idx("Size")].find(i => i >= 0) ?? -1,
   };
   const normalizeColor = s => {
     const v=(s||"").toLowerCase().trim();
@@ -1323,6 +1368,30 @@ function parseWineCSV(text) {
     if(v==="rosé"||v==="rose") return "Rosé";
     if(v==="sparkling"||v==="champagne"||v==="prosecco"||v==="dessert") return "Sparkling";
     return "Red";
+  };
+  const normalizeBottleSize = s => {
+    const v=(s||"").toLowerCase().trim().replace(/\s+/g," ");
+    if(!v) return DEFAULT_BOTTLE_SIZE;
+    // Named formats first — "double magnum" must beat "magnum"
+    if(v.includes("double magnum")) return "3000";
+    if(v.includes("magnum"))        return "1500";
+    if(v.includes("piccolo")||v.includes("split")) return "187";
+    if(v.includes("half")||v.includes("demi"))     return "375";
+    if(v.includes("jeroboam"))      return "4500";
+    if(v.includes("imperial")||v.includes("methuselah")) return "6000";
+    if(v.includes("salmanazar"))    return "9000";
+    if(v.includes("standard"))      return DEFAULT_BOTTLE_SIZE;
+    // Numeric: "1.5L", "0.75 l", "750ml", "1500"
+    const m=v.match(/([\d.]+)\s*(ml|cl|l|liter|litre)?/);
+    if(!m) return DEFAULT_BOTTLE_SIZE;
+    const n=parseFloat(m[1]); if(!n) return DEFAULT_BOTTLE_SIZE;
+    const unit=m[2]||"";
+    // Bare numbers below 20 read as litres ("1.5"), otherwise as millilitres ("750")
+    let ml = unit==="cl" ? n*10
+           : (unit.startsWith("l")||(!unit&&n<20)) ? n*1000
+           : n;
+    const match=BOTTLE_SIZES.find(b=>Math.abs(parseInt(b.value)-ml)<=10);
+    return match ? match.value : DEFAULT_BOTTLE_SIZE;
   };
   const parseAddedDate = s => {
     if(!s) return Date.now();
@@ -1349,6 +1418,7 @@ function parseWineCSV(text) {
       region:    get(cells,colMap.region),
       price:     parseFloat(get(cells,colMap.price))||0,
       qty:       1,
+      size:      normalizeBottleSize(get(cells,colMap.sizeRaw)),
       score:     null,
       drinkFrom: parseInt(get(cells,colMap.drinkFrom))||null,
       drinkTo:   parseInt(get(cells,colMap.drinkTo))||null,
@@ -1405,7 +1475,7 @@ function renderImportModal() {
       const locLabel=w._loc?`<span style="float:right;font-size:11px;color:var(--gold);font-weight:600">${locHintLabel(w._loc)}</span>`:"";
       list.appendChild(html(`<div style="padding:10px 14px;${i>0?"border-top:1px solid var(--border)":""}">
         <div style="font-weight:600;font-size:14px;color:var(--ink)">${w.wine}${locLabel}</div>
-        <div style="font-size:12px;color:var(--brown-mid)">${w.winery}${w.vintage?" · "+w.vintage:""}${w.color?" · "+w.color:""}</div>
+        <div style="font-size:12px;color:var(--brown-mid)">${w.winery}${w.vintage?" · "+w.vintage:""}${w.color?" · "+w.color:""}${bottleSizeBadge(w)?` · <span style="color:var(--gold);font-weight:700">${bottleSizeBadge(w)}</span>`:""}</div>
       </div>`));
     });
     sheet.appendChild(list);
@@ -2135,7 +2205,7 @@ function renderCellarContent() {
 }
 
 // ── FIND TAB ─────────────────────────────────────────────────────
-let findFilters = {color:"",varietal:"",region:"",vintageFrom:"",vintageTo:"",priceMin:"",priceMax:"",scoreMin:"",readyNow:false,food:"",trip:""};
+let findFilters = {color:"",varietal:"",region:"",vintageFrom:"",vintageTo:"",priceMin:"",priceMax:"",scoreMin:"",readyNow:false,food:"",trip:"",size:""};
 let pendingFilters = null;
 let findQuery = "";
 
@@ -2143,6 +2213,7 @@ function filterWines(storedWines) {
   return storedWines.filter(w=>{
     if(findQuery && !`${w.winery} ${w.wine} ${w.vintage} ${w.varietal} ${w.region}`.toLowerCase().includes(findQuery.toLowerCase())) return false;
     if(findFilters.color    && w.color!==findFilters.color) return false;
+    if(findFilters.size     && String(w.size||DEFAULT_BOTTLE_SIZE)!==findFilters.size) return false;
     if(findFilters.varietal && !(w.varietal||"").split(",").map(v=>v.trim()).includes(findFilters.varietal)) return false;
     if(findFilters.region   && !w.region?.toLowerCase().includes(findFilters.region.toLowerCase())) return false;
     if(findFilters.vintageFrom && parseInt(w.vintage)<parseInt(findFilters.vintageFrom)) return false;
@@ -2240,6 +2311,7 @@ function renderFilterPanel(storedWines, storedIds) {
     findFilters.vintageFrom||findFilters.vintageTo,
     findFilters.priceMin||findFilters.priceMax,
     findFilters.scoreMin,findFilters.readyNow,findFilters.food,findFilters.trip,
+    findFilters.size,
   ].filter(Boolean).length;
 
   const wrap = document.createElement("div");
@@ -2264,7 +2336,7 @@ function renderFilterPanel(storedWines, storedIds) {
   if (activeCount > 0) {
     const clr = html(`<button style="padding:10px 12px;border-radius:10px;border:1px solid rgba(139,38,53,0.2);background:rgba(139,38,53,0.06);color:var(--red-wine);font-size:12px;cursor:pointer;font-family:inherit">Clear</button>`);
     clr.onclick = () => {
-      const empty = {color:"",varietal:"",region:"",vintageFrom:"",vintageTo:"",priceMin:"",priceMax:"",scoreMin:"",readyNow:false,food:"",trip:""};
+      const empty = {color:"",varietal:"",region:"",vintageFrom:"",vintageTo:"",priceMin:"",priceMax:"",scoreMin:"",readyNow:false,food:"",trip:"",size:""};
       findFilters = empty;
       pendingFilters = filterOpen ? {...empty} : null;
       renderTab();
@@ -2310,6 +2382,24 @@ function renderFilterPanel(storedWines, storedIds) {
     colorSec.querySelector("div:last-child").appendChild(btn);
   });
   panel.appendChild(colorSec);
+
+  // Bottle size — only sizes actually in the cellar, plus Standard, so the row stays short
+  const presentSizes = BOTTLE_SIZES.filter(b =>
+    b.value === DEFAULT_BOTTLE_SIZE ||
+    storedWines.some(w => String(w.size||DEFAULT_BOTTLE_SIZE) === b.value));
+  if (presentSizes.length > 1) {
+    const sizeSec = html(`<div><div class="section-label">Bottle Size</div><div style="display:flex;gap:6px;flex-wrap:wrap"></div></div>`);
+    presentSizes.forEach(b => {
+      const active = pf.size === b.value;
+      const count  = storedWines.filter(w => String(w.size||DEFAULT_BOTTLE_SIZE) === b.value).length;
+      const btn = html(`<button style="padding:5px 12px;border-radius:20px;border:1px solid ${active?"var(--gold)":"var(--border)"};background:${active?"rgba(184,134,11,0.12)":"transparent"};color:${active?"var(--gold)":count>0?"var(--brown-mid)":"var(--brown-pale)"};font-size:12px;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:5px">
+        <span>${b.name}</span><span style="color:var(--brown-pale);font-size:11px">${b.short}</span>${count>0?`<span class="badge-count">${count}</span>`:""}
+      </button>`);
+      btn.onclick = () => { pendingFilters.size = active ? "" : b.value; refreshFilterPanel(); };
+      sizeSec.querySelector("div:last-child").appendChild(btn);
+    });
+    panel.appendChild(sizeSec);
+  }
 
   // Varietal
   const varSec = html(`<div><div class="section-label">Varietal</div></div>`);
@@ -2388,6 +2478,7 @@ function renderFindCard(wine, placement) {
   const loc          = placement ? allLocations[placement.locId] : null;
   const sectionLabel = loc ? getSlotSection(loc, placement.slot) : null;
   const status = drinkStatus(wine);
+  const sizeBadge = bottleSizeBadge(wine);
   const card   = html(`<div class="card" style="cursor:pointer">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
       <div style="flex:1;min-width:0">
@@ -2398,6 +2489,7 @@ function renderFindCard(wine, placement) {
         <div style="color:var(--brown-light);font-size:14px;font-style:italic">${wine.winery}${wine.vintage?" · "+wine.vintage:""}</div>
         <div style="display:flex;gap:8px;margin-top:7px;flex-wrap:wrap;align-items:center">
           ${wine.varietal?`<span style="color:var(--brown-pale);font-size:12px">${wine.varietal}</span>`:""}
+          ${sizeBadge?`<span style="color:var(--gold);font-size:12px;font-weight:700">${sizeBadge}</span>`:""}
           ${wine.score?`<span style="color:${scoreColor(wine.score)};font-size:12px;font-weight:700">${wine.score}pts</span>`:""}
           ${status?`<span style="color:${status.color};font-size:12px">${status.emoji} ${status.label.split("·")[0].trim()}</span>`:""}
         </div>
@@ -2620,6 +2712,7 @@ function showQuickAddModal() {
   if (!activeTrip) { alert("Select a trip first."); return; }
   let qColor = lastQuickAddColor;
   let qQty   = "1";
+  const qForm = {size: DEFAULT_BOTTLE_SIZE}; // held outside render() so it survives re-renders
 
   function render() {
     const root = el("modal-root"); root.innerHTML = "";
@@ -2655,6 +2748,8 @@ function showQuickAddModal() {
     qtyRow.appendChild(qtyInp);
     form.appendChild(qtyRow);
 
+    buildBottleSizeField(form, qForm, null);
+
     sheet.appendChild(form);
 
     const saveBtn = html(`<button class="btn-primary" style="margin-top:20px">Add Placeholder</button>`);
@@ -2663,7 +2758,7 @@ function showQuickAddModal() {
       const wine = {
         id: String(nextId++),
         winery: "", wine: "Placeholder",
-        color: qColor, qty,
+        color: qColor, qty, size: qForm.size||DEFAULT_BOTTLE_SIZE,
         tripId: activeTrip,
         isPlaceholder: true,
         vintage: "", varietal: "", region: "",
@@ -2687,7 +2782,7 @@ function showQuickAddModal() {
 function showAddWineModal() {
   addWineScreen     = "choose";
   const _initTrip   = trips[activeTrip];
-  addWineForm       = {winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",score:"",drinkFrom:"",drinkTo:"",notes:"",priceLocal:"",priceCurrency:_initTrip?.currency||"USD",_enrichNote:null,_pairings:null,_drinkWindow:null,_servingTip:null,_tripId:activeTrip||""};
+  addWineForm       = {winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",size:DEFAULT_BOTTLE_SIZE,score:"",drinkFrom:"",drinkTo:"",notes:"",priceLocal:"",priceCurrency:_initTrip?.currency||"USD",_enrichNote:null,_pairings:null,_drinkWindow:null,_servingTip:null,_tripId:activeTrip||""};
   addWineScanPreview     = null;
   addWineScanPreviewBack = null;
   addWineScanB64Front    = null;
@@ -2703,7 +2798,7 @@ function showAddWineModal() {
 // Sequential single-bottle scanner used by "Scan Multiple Bottles"
 function startMultiScanCamera() {
   const _mstTrip=trips[activeTrip];
-  addWineForm={winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",score:"",drinkFrom:"",drinkTo:"",notes:"",priceLocal:"",priceCurrency:_mstTrip?.currency||"USD",_enrichNote:null,_pairings:null,_drinkWindow:null,_servingTip:null,_tripId:activeTrip||""};
+  addWineForm={winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",size:DEFAULT_BOTTLE_SIZE,score:"",drinkFrom:"",drinkTo:"",notes:"",priceLocal:"",priceCurrency:_mstTrip?.currency||"USD",_enrichNote:null,_pairings:null,_drinkWindow:null,_servingTip:null,_tripId:activeTrip||""};
   addWineScanPreview=null; addWineScanError=null;
   const inp=document.createElement("input"); inp.type="file"; inp.accept="image/*"; inp.capture="environment";
   inp.onchange=async e=>{
@@ -2898,7 +2993,7 @@ function renderAddWineModal() {
             }
             // Build a form object for each detected wine
             const _msqTrip=trips[activeTrip];
-            const mkForm=()=>({winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",score:"",drinkFrom:"",drinkTo:"",notes:"",priceLocal:"",priceCurrency:_msqTrip?.currency||"USD",_enrichNote:null,_pairings:null,_drinkWindow:null,_servingTip:null,_tripId:activeTrip||""});
+            const mkForm=()=>({winery:"",wine:"",vintage:"",color:"Red",varietal:"",region:"",price:"",qty:"1",size:DEFAULT_BOTTLE_SIZE,score:"",drinkFrom:"",drinkTo:"",notes:"",priceLocal:"",priceCurrency:_msqTrip?.currency||"USD",_enrichNote:null,_pairings:null,_drinkWindow:null,_servingTip:null,_tripId:activeTrip||""});
             scanQueue=winesList.map(w=>{
               const f=mkForm();
               f.winery=w.winery||""; f.wine=w.wine||""; f.vintage=w.vintage||"";
@@ -3099,6 +3194,7 @@ function renderAddWineModal() {
     });
     form.appendChild(row1);
 
+    buildBottleSizeField(form, addWineForm, null);
     buildVarietalField(form, addWineForm);
 
     // Region
@@ -3164,6 +3260,7 @@ function renderAddWineModal() {
         priceLocal:     isNonUSD ? rawAmt : null,
         priceCurrency:  isNonUSD ? addWineForm.priceCurrency : null,
         qty:     parseInt(addWineForm.qty)||1,
+        size:    addWineForm.size||DEFAULT_BOTTLE_SIZE,
         score:   parseInt(addWineForm.score)||null,
         drinkFrom:parseInt(addWineForm.drinkFrom)||null,
         drinkTo:  parseInt(addWineForm.drinkTo)||null,
@@ -3249,6 +3346,7 @@ function renderAddWineModal() {
       w.appendChild(inp); row1.appendChild(w);
     });
     form.appendChild(row1);
+    buildBottleSizeField(form, addWineForm, scanQueue[scanQueueIndex]||null);
     buildVarietalField(form, addWineForm, v => { if(scanQueue[scanQueueIndex]) scanQueue[scanQueueIndex].varietal = v; });
     // Region
     const regWrap=document.createElement("div");
@@ -3297,6 +3395,7 @@ function renderAddWineModal() {
         priceLocal:    isNonUSD2 ? rawAmt2 : null,
         priceCurrency: isNonUSD2 ? addWineForm.priceCurrency : null,
         qty:parseInt(addWineForm.qty)||1,
+        size:addWineForm.size||DEFAULT_BOTTLE_SIZE,
         score:parseInt(addWineForm.score)||null,
         drinkFrom:parseInt(addWineForm.drinkFrom)||null, drinkTo:parseInt(addWineForm.drinkTo)||null,
         notes:addWineForm.notes.trim(),
@@ -3612,6 +3711,8 @@ function showWineProfile(wine) {
   // Tags
   const tags=document.createElement("div"); tags.style.cssText="display:flex;gap:7px;margin-bottom:16px;flex-wrap:wrap";
   if(wine.vintage) tags.appendChild(html(`<span class="pill">${wine.vintage}</span>`));
+  const sizeBadge=bottleSizeBadge(wine);
+  if(sizeBadge)    tags.appendChild(html(`<span class="pill" style="background:rgba(184,134,11,0.12);border-color:rgba(184,134,11,0.35);color:var(--gold);font-weight:700">${sizeBadge}</span>`));
   if(wine.region)  tags.appendChild(html(`<span class="pill">${wine.region}</span>`));
   if(wine.score)   tags.appendChild(html(`<span class="pill" style="background:${scoreColor(wine.score)}18;border-color:${scoreColor(wine.score)}44;color:${scoreColor(wine.score)};font-weight:800;font-family:monospace">${wine.score}pts</span>`));
   if(wine.price>0) tags.appendChild(html(`<span class="pill">${formatPrice(wine)}</span>`));
@@ -3846,6 +3947,7 @@ function showEditWineModal(wine) {
     priceLocal:   hasLocal ? String(wine.priceLocal) : "",
     priceCurrency:wine.priceCurrency||"USD",
     qty:          wine.qty      ?String(wine.qty)     :"1",
+    size:         wine.size     ?String(wine.size)    :DEFAULT_BOTTLE_SIZE,
     score:        wine.score    ?String(wine.score)   :"",
     drinkFrom:    wine.drinkFrom?String(wine.drinkFrom):"",
     drinkTo:      wine.drinkTo  ?String(wine.drinkTo) :"",
@@ -3986,6 +4088,7 @@ function renderEditWineModal(wine) {
   });
   form.appendChild(row1);
 
+  buildBottleSizeField(form, editWineForm, null);
   buildVarietalField(form, editWineForm);
 
   // Region
@@ -4073,6 +4176,7 @@ function renderEditWineModal(wine) {
       priceLocal:    eIsNonUSD ? eRawAmt : null,
       priceCurrency: eIsNonUSD ? editWineForm.priceCurrency : null,
       qty:parseInt(editWineForm.qty)||1,
+      size:editWineForm.size||DEFAULT_BOTTLE_SIZE,
       score:parseInt(editWineForm.score)||null,
       drinkFrom:parseInt(editWineForm.drinkFrom)||null,
       drinkTo:parseInt(editWineForm.drinkTo)||null,
