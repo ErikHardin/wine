@@ -283,6 +283,10 @@
     width: 36px; height: 4px; background: var(--parchment);
     border-radius: 2px; margin: 0 auto 20px;
   }
+  /* Own stacking context above .settings-overlay (1000) so wine profiles opened
+     from Settings paint on top of it, while staying below the ad-hoc confirm
+     overlays appended straight to body (2000+). */
+  #modal-root { position: relative; z-index: 1100; }
 
   /* ── Score badge ── */
   .score-badge {
@@ -561,7 +565,11 @@ let allVarietals = [];   // from /config/varietals
 let bulkRefreshRunning  = false;
 let bulkRefreshCancel   = false;
 let bulkRefreshProgress = { done:0, total:0, errors:0, phase:"", currentName:"" };
-let settingsExpanded    = { locations: false, varietals: false, bulk: false, deleteWine: false, users: false, trips: false, orphanWines: false };
+let settingsExpanded    = { inventory: false, locations: false, varietals: false, bulk: false, deleteWine: false, users: false, trips: false, orphanWines: false };
+// locId -> bool. Module-level so it survives the renderSettingsBody() rebuilds
+// that every Firebase listener triggers; a closure local would collapse the
+// inventory list whenever any wine changed.
+let inventoryExpanded   = {};
 let tripColorExpanded   = {};
 let tripStoredExpanded  = false;
 let tripConsumedExpanded = false;
@@ -4246,7 +4254,7 @@ function showSlotDetail(locId,slot,wine){
 function showSettings() {
   if (currentUserRole !== "admin") return;
   if (document.getElementById("settings-overlay")) return;
-  settingsExpanded = { locations: false, varietals: false, bulk: false, deleteWine: false, users: false, trips: false, orphanWines: false };
+  settingsExpanded = { inventory: false, locations: false, varietals: false, bulk: false, deleteWine: false, users: false, trips: false, orphanWines: false };
   const overlay = document.createElement("div");
   overlay.id = "settings-overlay";
   overlay.className = "settings-overlay";
@@ -4289,6 +4297,7 @@ function renderSettingsBody() {
   const body = document.getElementById("settings-body");
   if (!body) return;
   body.innerHTML = "";
+  body.appendChild(renderSettingsSectionInventory());
   body.appendChild(renderSettingsSectionUsers());
   body.appendChild(renderSettingsSectionLocations());
   body.appendChild(renderSettingsSectionVarietals());
@@ -4715,6 +4724,142 @@ function renderSettingsSectionOrphanWines() {
 
       sec.appendChild(list);
     }
+  });
+}
+
+function renderSettingsSectionInventory() {
+  return makeSettingsSection("inventory", "Inventory", sec => {
+    const locs = Object.values(allLocations);
+    if (locs.length === 0) {
+      sec.appendChild(html(`<div style="color:var(--brown-pale);font-size:13px">Loading locations…</div>`));
+      return;
+    }
+
+    sec.appendChild(html(`<div style="font-size:12px;color:var(--brown-mid);margin-bottom:12px">Every stored bottle by section — scan this against the physical racks to catch wines that were never logged or never marked consumed.</div>`));
+
+    // One row: [color dot] [slot] [vintage winery wine] — taps into the profile.
+    function buildWineRow(w, slotLabel) {
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;align-items:center;gap:10px;padding:8px 12px;border-top:1px solid var(--border-2);cursor:pointer";
+
+      const dot = document.createElement("div");
+      dot.style.cssText = `width:9px;height:9px;border-radius:50%;flex-shrink:0;background:${colorDot(w.color||"Red")}`;
+
+      const slotSpan = document.createElement("span");
+      slotSpan.style.cssText = "font-family:monospace;font-size:11px;color:var(--brown-pale);min-width:34px;flex-shrink:0";
+      slotSpan.textContent = slotLabel;
+
+      const label = [w.vintage, w.winery, w.wine].filter(Boolean).join(" ");
+      const info = html(`<div style="flex:1;min-width:0;font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(label) || "Unnamed wine"}</div>`);
+
+      row.appendChild(dot); row.appendChild(slotSpan); row.appendChild(info);
+      row.onclick = () => showWineProfile(w);
+      return row;
+    }
+
+    // A slot pointing at a wine id that no longer exists — exactly the drift
+    // this section is meant to surface, so show it rather than dropping it.
+    function buildMissingRow(slotLabel) {
+      return html(`<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-top:1px solid var(--border-2)">
+        <div style="width:9px;height:9px;flex-shrink:0"></div>
+        <span style="font-family:monospace;font-size:11px;color:var(--brown-pale);min-width:34px;flex-shrink:0">${esc(slotLabel)}</span>
+        <div style="flex:1;min-width:0;font-size:13px;color:var(--brown-pale);font-style:italic">⚠ missing wine record</div>
+      </div>`);
+    }
+
+    function buildLocationGroup(loc) {
+      const locSlots = slots[loc.id] || {};
+      const filled   = Object.values(locSlots).filter(Boolean).length;
+      const total    = (loc.slots || []).length;
+
+      const group = document.createElement("div");
+      // No overflow:hidden — it creates a GPU compositing layer on iOS Safari
+      // that renders above fixed-position overlays regardless of z-index.
+      group.style.cssText = "margin-bottom:8px;border:1px solid var(--border);border-radius:10px";
+
+      const chevron = document.createElement("span");
+      chevron.style.cssText = "font-size:12px;opacity:0.7";
+      chevron.textContent = inventoryExpanded[loc.id] ? "▼" : "▶";
+
+      const groupHdr = document.createElement("div");
+      const hdrRadius = inventoryExpanded[loc.id] ? "9px 9px 0 0" : "9px";
+      groupHdr.style.cssText = `display:flex;align-items:center;gap:8px;padding:10px 12px;background:rgba(184,134,11,0.05);cursor:pointer;user-select:none;border-radius:${hdrRadius}`;
+      const iconSpan = document.createElement("span"); iconSpan.textContent = loc.icon || "📦";
+      const nameSpan = document.createElement("span"); nameSpan.style.cssText = "font-weight:600;flex:1;color:var(--ink)"; nameSpan.textContent = loc.name;
+      const countSpan = document.createElement("span"); countSpan.style.cssText = "font-size:12px;color:var(--brown-pale)";
+      countSpan.textContent = `${filled} of ${total} filled`;
+      groupHdr.appendChild(iconSpan); groupHdr.appendChild(nameSpan); groupHdr.appendChild(countSpan); groupHdr.appendChild(chevron);
+
+      const groupBody = document.createElement("div");
+      groupBody.style.cssText = `padding-bottom:6px;display:${inventoryExpanded[loc.id] ? "block" : "none"}`;
+
+      groupHdr.onclick = () => {
+        inventoryExpanded[loc.id] = !inventoryExpanded[loc.id];
+        groupBody.style.display = inventoryExpanded[loc.id] ? "block" : "none";
+        chevron.textContent = inventoryExpanded[loc.id] ? "▼" : "▶";
+        groupHdr.style.borderRadius = inventoryExpanded[loc.id] ? "9px 9px 0 0" : "9px";
+      };
+
+      if (filled === 0) {
+        groupBody.appendChild(html(`<div style="padding:10px 12px;border-top:1px solid var(--border-2);font-size:12px;color:var(--brown-pale)">Empty</div>`));
+      } else {
+        // Same section handling as renderCellarContent, so order and labels match the grid.
+        const isCloset = loc.grid?.sections?.length > 0 && typeof loc.grid.sections[0] === "object";
+        const sections = !loc.grid?.sections?.length ? []
+                       : isCloset ? loc.grid.sections
+                                  : loc.grid.sections.map(s => ({ id: s, rows: 1, label: s }));
+
+        const seen = new Set();
+        sections.forEach(secDef => {
+          const secId = secDef.id;
+          const label = isCloset ? secDef.label :
+                        /^R\d+$/.test(secId) ? `Row ${secId.replace("R","")}` :
+                        `Section ${secId}`;
+          // Keep loc.slots ordering — Object.keys(slots[locId]) is not grid order.
+          const secSlots = (loc.slots || []).filter(s => isCloset ? s.startsWith(secId+"-") : s.startsWith(secId));
+          const occupied = secSlots.filter(s => locSlots[s]);
+          occupied.forEach(s => seen.add(s));
+          if (occupied.length === 0) return;
+
+          const secWrap = document.createElement("div");
+          secWrap.appendChild(html(`<div style="display:flex;align-items:baseline;gap:8px;padding:10px 12px 4px">
+            <div class="section-label" style="margin:0;flex:1">${esc(label)}</div>
+            <span style="font-size:11px;color:var(--brown-pale)">${occupied.length} bottle${occupied.length!==1?"s":""}</span>
+          </div>`));
+          occupied.forEach(slot => {
+            const w = wines[locSlots[slot]];
+            const slotLabel = isCloset ? slot.split("-").pop() : slot;
+            secWrap.appendChild(w ? buildWineRow(w, slotLabel) : buildMissingRow(slotLabel));
+          });
+          groupBody.appendChild(secWrap);
+        });
+
+        // Anything occupying a slot name the current grid no longer defines.
+        const strays = Object.keys(locSlots).filter(s => locSlots[s] && !seen.has(s));
+        if (strays.length > 0) {
+          const strayWrap = document.createElement("div");
+          strayWrap.appendChild(html(`<div style="display:flex;align-items:baseline;gap:8px;padding:10px 12px 4px">
+            <div class="section-label" style="margin:0;flex:1">Outside the grid</div>
+            <span style="font-size:11px;color:var(--brown-pale)">${strays.length} bottle${strays.length!==1?"s":""}</span>
+          </div>`));
+          strays.forEach(slot => {
+            const w = wines[locSlots[slot]];
+            strayWrap.appendChild(w ? buildWineRow(w, slot) : buildMissingRow(slot));
+          });
+          groupBody.appendChild(strayWrap);
+        }
+      }
+
+      group.appendChild(groupHdr);
+      group.appendChild(groupBody);
+      return group;
+    }
+
+    locs.forEach(loc => {
+      // Default to expanded: the point of this section is seeing everything at once.
+      if (inventoryExpanded[loc.id] === undefined) inventoryExpanded[loc.id] = true;
+      sec.appendChild(buildLocationGroup(loc));
+    });
   });
 }
 
