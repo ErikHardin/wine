@@ -1127,7 +1127,7 @@ async function initFirebase() {
   });
   onValue(ref(db,"wines"),   snap=>{ wines   =snap.val()||{}; render(); if(document.getElementById("settings-overlay")) renderSettingsBody(); openProfileRefresh?.(); });
   onValue(ref(db,"slots"),   snap=>{ slots   =snap.val()||{}; render(); if(document.getElementById("settings-overlay")) renderSettingsBody(); });
-  onValue(ref(db,"consumed"),snap=>{ consumed=snap.val()||{}; render(); });
+  onValue(ref(db,"consumed"),snap=>{ consumed=snap.val()||{}; render(); openProfileRefresh?.(); });
   onValue(ref(db,"trips"),   snap=>{ trips   =snap.val()||{}; render(); });
   onValue(ref(db, "config/users"), snap => {
     allUsers = snap.val() || {};
@@ -1153,6 +1153,19 @@ async function deleteWine(id) {
 }
 async function updateWine(id, updates) {
   await update(ref(db,`wines/${id}`), updates);
+}
+// Every record that represents this wine right now: the cellar record if it
+// still exists, plus every consumed entry that came from it. Critic notes are
+// written to all of them, so a search that lands after the bottle was consumed
+// (or after the last one was, and the wine record deleted) still finds a home
+// instead of resurrecting a stub at wines/<id>.
+function criticTargets(wineId) {
+  const paths = [];
+  if (wines[wineId]) paths.push(`wines/${wineId}`);
+  Object.values(consumed).forEach(c => {
+    if ((c.wineId ?? c.id) === wineId) paths.push(`consumed/${c.id}`);
+  });
+  return paths;
 }
 async function saveSlot(locId, slot, wineId) {
   await set(ref(db,`slots/${locId}/${slot}`), wineId);
@@ -1253,33 +1266,42 @@ const criticsSearching = new Set();
 // (and paying for) the same doomed search again.
 const criticsAttempted = new Set();
 
+// Takes a wine record or a consumed entry. Both are keyed on the original wine
+// id so the cellar profile and the consumed sheet share the in-flight state.
 async function fetchCriticsForWine(wine) {
-  if (criticsSearching.has(wine.id)) return;   // already looking for this one
-  criticsSearching.add(wine.id);
-  criticsAttempted.add(wine.id);
+  const wineId = wine.wineId ?? wine.id;
+  if (criticsSearching.has(wineId)) return;   // already looking for this one
+  criticsSearching.add(wineId);
+  criticsAttempted.add(wineId);
   let data;
   try {
     data = await callCriticsAPI(wine.winery, wine.wine, wine.vintage, wine.varietal, wine.region);
   } catch (e) {
-    criticsSearching.delete(wine.id);
+    criticsSearching.delete(wineId);
     openProfileRefresh?.();
     throw e;
   }
-  criticsSearching.delete(wine.id);
+  criticsSearching.delete(wineId);
+  let updates = null;
   if (data.criticNotes?.length) {
-    await updateWine(wine.id, {
+    updates = {
       criticNotes:   data.criticNotes,
       criticSource:  data.criticSource || "web",
       criticNotesAt: Date.now(),
-    });
+    };
   } else if (data.found === false) {
     // Searched, nothing published exists — remember that so we don't re-search every open
-    await updateWine(wine.id, {
+    updates = {
       criticNotes:   [],
       criticSource:  "none",
       criticNotesAt: Date.now(),
-    });
+    };
   }
+  if (!updates) return;
+  // Resolved now, not before the search: a bottle consumed while this was in
+  // flight has a new record by now and should get the notes too. No targets
+  // means the wine is gone entirely — dropping the result is the right move.
+  await Promise.all(criticTargets(wineId).map(p => update(ref(db, p), updates)));
 }
 
 // ── CSV IMPORT ────────────────────────────────────────────────────
@@ -2519,24 +2541,69 @@ function renderFindCard(wine, placement) {
 }
 
 // ── CONSUMED TAB ─────────────────────────────────────────────────
+// Local calendar day, so bottles opened the same evening land together no
+// matter what the clock read. null for a record with no usable consumedAt.
+function consumedDayKey(ts) {
+  // Number, not just Date-parseable: new Date(null) is epoch 0, which would
+  // file a record with no timestamp under January 1970.
+  if (typeof ts !== "number" || !isFinite(ts)) return null;
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+function consumedDayLabel(ts) {
+  const d     = new Date(ts);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const day   = new Date(d); day.setHours(0,0,0,0);
+  const diff  = Math.round((today - day) / 86400000);
+  if (diff === 0) return "Today";
+  if (diff === 1) return "Yesterday";
+  const opts = { weekday:"short", month:"short", day:"numeric" };
+  if (d.getFullYear() !== today.getFullYear()) opts.year = "numeric";
+  return d.toLocaleDateString("en-US", opts);
+}
+
 function renderConsumedTab() {
   const frag    = document.createDocumentFragment();
-  const entries = Object.values(consumed).sort((a,b)=>b.consumedAt-a.consumedAt);
+  const entries = Object.values(consumed);
 
   if (entries.length===0) {
     frag.appendChild(html(`<div class="empty-state"><div class="icon">🍷</div><div class="title">Nothing consumed yet</div><div class="sub">Mark bottles as consumed from Find a Bottle.</div></div>`));
     return frag;
   }
 
-  entries.forEach(c=>frag.appendChild(renderConsumedCard(c)));
+  // Newest day first, newest bottle first within the day. Records with no
+  // usable timestamp sort last rather than poisoning the comparison with NaN.
+  const dated   = entries.filter(c=>consumedDayKey(c.consumedAt)!==null).sort((a,b)=>b.consumedAt-a.consumedAt);
+  const undated = entries.filter(c=>consumedDayKey(c.consumedAt)===null);
+
+  const groups = [];
+  const byKey  = {};
+  dated.forEach(c=>{
+    const key = consumedDayKey(c.consumedAt);
+    if (!byKey[key]) { byKey[key] = { label: consumedDayLabel(c.consumedAt), items: [] }; groups.push(byKey[key]); }
+    byKey[key].items.push(c);
+  });
+  if (undated.length) groups.push({ label: "Date unknown", items: undated });
+
+  groups.forEach((g,i)=>{
+    const n = g.items.length;
+    frag.appendChild(html(`<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;${i>0?"margin-top:18px":""}">
+      <div class="section-label" style="margin-bottom:0">${esc(g.label)}</div>
+      <div style="color:var(--brown-pale);font-size:11px;white-space:nowrap">${n} bottle${n===1?"":"s"}</div>
+    </div>`));
+    g.items.forEach(c=>frag.appendChild(renderConsumedCard(c, { showDate:false })));
+  });
 
   return frag;
 }
 
-function renderConsumedCard(c) {
+// showDate:false for the Consumed tab, where a day header already says when.
+// The Trip tab keeps the per-card date.
+function renderConsumedCard(c, { showDate = true } = {}) {
   const loc=c.locId?allLocations[c.locId]:null;
   const d=new Date(c.consumedAt);
-  const dateStr=d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});
+  const dateStr=isNaN(d)?"":d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});
   const card=html(`<div class="card" style="opacity:0.88;cursor:pointer">
     <div style="display:flex;justify-content:space-between;align-items:flex-start">
       <div style="flex:1;min-width:0">
@@ -2553,7 +2620,7 @@ function renderConsumedCard(c) {
           ${c.pairings.slice(0,3).map(p=>`<span style="background:rgba(184,134,11,0.08);border-radius:10px;padding:2px 8px;color:var(--brown-pale);font-size:10px">${p}</span>`).join("")}
         </div>`:""}
       </div>
-      <div style="color:var(--brown-pale);font-size:10px;text-align:right;flex-shrink:0;margin-left:10px">${dateStr}<div style="margin-top:4px;font-size:9px;letter-spacing:0.5px;opacity:0.7">tap for details</div></div>
+      <div style="color:var(--brown-pale);font-size:10px;text-align:right;flex-shrink:0;margin-left:10px">${showDate?dateStr:""}<div style="${showDate?"margin-top:4px;":""}font-size:9px;letter-spacing:0.5px;opacity:0.7">tap for details</div></div>
     </div>
   </div>`);
   card.onclick=()=>showConsumedProfile(c);
@@ -2621,7 +2688,8 @@ function showConsumedProfile(entry) {
   const root=el("modal-root"); root.innerHTML="";
   const overlay=document.createElement("div"); overlay.className="modal-overlay";
   const sheet=document.createElement("div"); sheet.className="modal-sheet";
-  overlay.onclick=e=>{ if(e.target===overlay) root.innerHTML=""; };
+  const closeProfile=()=>{ openProfileRefresh=null; root.innerHTML=""; };
+  overlay.onclick=e=>{ if(e.target===overlay) closeProfile(); };
 
   const loc=entry.locId?allLocations[entry.locId]:null;
   const d=new Date(entry.consumedAt);
@@ -2633,7 +2701,7 @@ function showConsumedProfile(entry) {
   // Close button
   const closeRow=document.createElement("div"); closeRow.style.cssText="display:flex;justify-content:flex-end;margin-bottom:4px";
   const closeBtn=html(`<button style="background:none;border:none;font-size:22px;color:var(--brown-pale);cursor:pointer;padding:0;line-height:1">×</button>`);
-  closeBtn.onclick=()=>root.innerHTML="";
+  closeBtn.onclick=closeProfile;
   closeRow.appendChild(closeBtn); sheet.appendChild(closeRow);
 
   // Consumed badge
@@ -2681,13 +2749,19 @@ function showConsumedProfile(entry) {
     sheet.appendChild(aiBox);
   }
 
+  // Critics — the entry's own snapshot, or a fresh search if this bottle was
+  // consumed before one ever finished.
+  const criticsUI = buildCriticsBox(entry, () => consumed[entry.id]);
+  openProfileRefresh = criticsUI.refresh;
+  sheet.appendChild(criticsUI.box);
+
   // Notes
   if(entry.notes) sheet.appendChild(html(`<div style="background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:14px 16px;color:var(--brown-mid);font-size:14px;font-style:italic;line-height:1.6;margin-bottom:14px">"${entry.notes}"</div>`));
 
   // Return to Cellar button
   const returnBtn=html(`<button class="btn-primary" style="width:100%">↩ Return to Cellar</button>`);
   returnBtn.onclick=async()=>{
-    root.innerHTML="";
+    closeProfile();
     await returnToCellar(entry);
   };
   sheet.appendChild(returnBtn);
@@ -3689,6 +3763,131 @@ function pickPlacementModal(placements) {
 // tabs but never touches the modal.
 let openProfileRefresh = null;
 
+// Builds the "📰 Critics" box for either a cellar wine or a consumed entry —
+// both records carry the same criticNotes/criticSource fields, and a consumed
+// bottle deserves its reviews as much as one still in the rack.
+//   record       the record the sheet was opened with (may be a stale copy)
+//   resolveFresh () => the live record from wines[]/consumed[], or undefined
+// Returns { box, refresh }; assign refresh to openProfileRefresh so a search
+// finishing in the background repaints the open sheet.
+function buildCriticsBox(record, resolveFresh) {
+  const wineId = record.wineId ?? record.id;
+  const criticsBox=document.createElement("div");
+  criticsBox.style.cssText="background:rgba(139,38,53,0.05);border:1px solid rgba(139,38,53,0.15);border-radius:14px;padding:16px;margin-bottom:14px";
+  const criticsHeader=document.createElement("div");
+  criticsHeader.style.cssText="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px";
+
+  const criticsTitleRow=document.createElement("div");
+  criticsTitleRow.style.cssText="display:flex;align-items:center;gap:8px";
+  criticsTitleRow.appendChild(html(`<div style="color:var(--red-wine);font-size:11px;letter-spacing:2px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">📰 Critics</div>`));
+  const criticsBadge=document.createElement("span");
+  function criticBadgeInfo(src){
+    if(src==="web")       return {label:"Web Reviews",    color:"#5a8a3a",          bg:"rgba(90,138,58,0.12)"};
+    if(src==="community") return {label:"Community Data", color:"#5a8a3a",          bg:"rgba(90,138,58,0.12)"};
+    if(src==="none")      return {label:"Not Found",      color:"var(--brown-pale)", bg:"rgba(120,100,80,0.10)"};
+    return {label:"Estimated", color:"var(--gold)", bg:"rgba(184,134,11,0.12)"};
+  }
+  function setCriticsBadge(src){
+    const b=criticBadgeInfo(src);
+    criticsBadge.style.cssText=`background:${b.bg};color:${b.color};font-size:9px;padding:2px 7px;border-radius:8px;font-weight:700`;
+    criticsBadge.textContent=b.label;
+  }
+  setCriticsBadge(record.criticSource);
+  criticsTitleRow.appendChild(criticsBadge);
+  criticsHeader.appendChild(criticsTitleRow);
+
+  const refreshBtn=html(`<button style="background:none;border:1px solid var(--border);border-radius:8px;color:var(--brown-pale);font-size:11px;cursor:pointer;padding:3px 8px">↻ Refresh</button>`);
+  criticsHeader.appendChild(refreshBtn);
+  criticsBox.appendChild(criticsHeader);
+
+  const criticsContent=document.createElement("div");
+  criticsBox.appendChild(criticsContent);
+
+  // Critics on a 20- or 5-point scale have no 100-point score; show what they
+  // actually published rather than dropping the rating.
+  function criticScoreChip(n){
+    const label = n.score ? String(n.score) : (n.scoreText || "");
+    if(!label) return "";
+    const c = n.score ? scoreColor(n.score) : "var(--brown-mid)";
+    const bg = n.score ? `${c}18` : "rgba(120,100,80,0.08)";
+    const bd = n.score ? `${c}44` : "rgba(120,100,80,0.2)";
+    return `<span style="background:${bg};border:1px solid ${bd};color:${c};font-size:11px;font-weight:800;font-family:monospace;padding:2px 8px;border-radius:8px">${esc(label)}${n.vintageMatch===false?"*":""}</span>`;
+  }
+
+  function renderSearching(){
+    criticsContent.innerHTML=`<div style="display:flex;align-items:center;gap:10px;color:var(--brown-mid);font-size:13px;font-style:italic"><div class="spinner"></div>Searching published reviews… takes a minute or two. Keep the app open — notes appear here when ready.</div>`;
+  }
+
+  function renderCriticCards(notes, src){
+    criticsContent.innerHTML="";
+    setCriticsBadge(src);
+    if(!notes?.length){
+      if(criticsSearching.has(wineId)) { renderSearching(); return; }
+      if(src==="none") criticsContent.innerHTML=`<div style="color:var(--brown-pale);font-size:12px;font-style:italic">No published critic reviews found for this wine.</div>`;
+      return;
+    }
+    notes.slice(0,3).forEach((n,i)=>{
+      const card=document.createElement("div");
+      if(i>0) card.style.cssText="margin-top:10px;padding-top:10px;border-top:1px solid rgba(139,38,53,0.12)";
+      const who=esc(n.source)+(n.critic?` · ${esc(n.critic)}`:"");
+      card.appendChild(html(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="color:var(--brown-mid);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">${who}</div>
+        ${criticScoreChip(n)}
+      </div>`));
+      card.appendChild(html(`<div style="color:var(--brown-mid);font-size:13px;line-height:1.7;font-style:italic">${esc(n.note)}</div>`));
+      const meta=[];
+      if(n.vintageMatch===false) meta.push(`<span style="color:var(--brown-pale)">*different vintage</span>`);
+      if(n.url) meta.push(`<a href="${esc(n.url)}" target="_blank" rel="noopener" style="color:var(--brown-pale);text-decoration:none">Source ↗</a>`);
+      if(meta.length) card.appendChild(html(`<div style="display:flex;gap:12px;margin-top:5px;font-size:10px">${meta.join("")}</div>`));
+      criticsContent.appendChild(card);
+    });
+  }
+
+  async function loadCritics(showSpinner){
+    if(showSpinner) renderSearching();
+    try {
+      await fetchCriticsForWine(resolveFresh() || record);
+      // In async mode the worker writes the result itself and the wines
+      // listener repaints this box; nothing lands here synchronously.
+      const fresh = resolveFresh() || record;
+      if(!criticsSearching.has(wineId)) renderCriticCards(fresh.criticNotes, fresh.criticSource);
+    } catch(e){
+      criticsContent.innerHTML=`<div style="color:var(--brown-pale);font-size:12px;font-style:italic">Couldn't load notes — tap ↻ to retry.</div>`;
+    }
+  }
+
+  refreshBtn.onclick=()=>loadCritics(true);
+
+  // Repaint when a background search writes its results in.
+  const refresh=()=>{
+    const fresh = resolveFresh();
+    if(!fresh) return;
+    if(fresh.criticNotes?.length || fresh.criticSource==="none"){
+      criticsSearching.delete(wineId);
+      renderCriticCards(fresh.criticNotes, fresh.criticSource);
+    }
+  };
+
+  // Read the live record, not the copy captured when the card was drawn —
+  // a stale one has no notes on it and starts the search over again.
+  const stored = resolveFresh() || record;
+  if(stored.criticNotes?.length){
+    renderCriticCards(stored.criticNotes,stored.criticSource);
+  } else if(stored.criticSource==="none"){
+    renderCriticCards([],"none");
+  } else if(criticsSearching.has(wineId)){
+    renderSearching();          // a search kicked off elsewhere is still running
+  } else if(criticsAttempted.has(wineId)){
+    // Already tried this session and it failed or timed out. Retry on demand
+    // rather than burning another search on every open.
+    criticsContent.innerHTML=`<div style="color:var(--brown-pale);font-size:12px;font-style:italic">Couldn't load notes — tap ↻ to retry.</div>`;
+  } else {
+    loadCritics(true);
+  }
+
+  return { box: criticsBox, refresh };
+}
+
 function showWineProfile(wine) {
   const root=el("modal-root"); root.innerHTML="";
   const overlay=document.createElement("div"); overlay.className="modal-overlay";
@@ -3786,119 +3985,9 @@ function showWineProfile(wine) {
   sheet.appendChild(aiBox);
 
   // Critics section
-  const criticsBox=document.createElement("div");
-  criticsBox.style.cssText="background:rgba(139,38,53,0.05);border:1px solid rgba(139,38,53,0.15);border-radius:14px;padding:16px;margin-bottom:14px";
-  const criticsHeader=document.createElement("div");
-  criticsHeader.style.cssText="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px";
-
-  const criticsTitleRow=document.createElement("div");
-  criticsTitleRow.style.cssText="display:flex;align-items:center;gap:8px";
-  criticsTitleRow.appendChild(html(`<div style="color:var(--red-wine);font-size:11px;letter-spacing:2px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">📰 Critics</div>`));
-  const criticsBadge=document.createElement("span");
-  function criticBadgeInfo(src){
-    if(src==="web")       return {label:"Web Reviews",    color:"#5a8a3a",          bg:"rgba(90,138,58,0.12)"};
-    if(src==="community") return {label:"Community Data", color:"#5a8a3a",          bg:"rgba(90,138,58,0.12)"};
-    if(src==="none")      return {label:"Not Found",      color:"var(--brown-pale)", bg:"rgba(120,100,80,0.10)"};
-    return {label:"Estimated", color:"var(--gold)", bg:"rgba(184,134,11,0.12)"};
-  }
-  function setCriticsBadge(src){
-    const b=criticBadgeInfo(src);
-    criticsBadge.style.cssText=`background:${b.bg};color:${b.color};font-size:9px;padding:2px 7px;border-radius:8px;font-weight:700`;
-    criticsBadge.textContent=b.label;
-  }
-  setCriticsBadge(wine.criticSource);
-  criticsTitleRow.appendChild(criticsBadge);
-  criticsHeader.appendChild(criticsTitleRow);
-
-  const refreshBtn=html(`<button style="background:none;border:1px solid var(--border);border-radius:8px;color:var(--brown-pale);font-size:11px;cursor:pointer;padding:3px 8px">↻ Refresh</button>`);
-  criticsHeader.appendChild(refreshBtn);
-  criticsBox.appendChild(criticsHeader);
-
-  const criticsContent=document.createElement("div");
-  criticsBox.appendChild(criticsContent);
-
-  // Critics on a 20- or 5-point scale have no 100-point score; show what they
-  // actually published rather than dropping the rating.
-  function criticScoreChip(n){
-    const label = n.score ? String(n.score) : (n.scoreText || "");
-    if(!label) return "";
-    const c = n.score ? scoreColor(n.score) : "var(--brown-mid)";
-    const bg = n.score ? `${c}18` : "rgba(120,100,80,0.08)";
-    const bd = n.score ? `${c}44` : "rgba(120,100,80,0.2)";
-    return `<span style="background:${bg};border:1px solid ${bd};color:${c};font-size:11px;font-weight:800;font-family:monospace;padding:2px 8px;border-radius:8px">${esc(label)}${n.vintageMatch===false?"*":""}</span>`;
-  }
-
-  function renderSearching(){
-    criticsContent.innerHTML=`<div style="display:flex;align-items:center;gap:10px;color:var(--brown-mid);font-size:13px;font-style:italic"><div class="spinner"></div>Searching published reviews… takes a minute or two. Keep the app open — notes appear here when ready.</div>`;
-  }
-
-  function renderCriticCards(notes, src){
-    criticsContent.innerHTML="";
-    setCriticsBadge(src);
-    if(!notes?.length){
-      if(criticsSearching.has(wine.id)) { renderSearching(); return; }
-      if(src==="none") criticsContent.innerHTML=`<div style="color:var(--brown-pale);font-size:12px;font-style:italic">No published critic reviews found for this wine.</div>`;
-      return;
-    }
-    notes.slice(0,3).forEach((n,i)=>{
-      const card=document.createElement("div");
-      if(i>0) card.style.cssText="margin-top:10px;padding-top:10px;border-top:1px solid rgba(139,38,53,0.12)";
-      const who=esc(n.source)+(n.critic?` · ${esc(n.critic)}`:"");
-      card.appendChild(html(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <div style="color:var(--brown-mid);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;font-family:'Cormorant Garamond',serif">${who}</div>
-        ${criticScoreChip(n)}
-      </div>`));
-      card.appendChild(html(`<div style="color:var(--brown-mid);font-size:13px;line-height:1.7;font-style:italic">${esc(n.note)}</div>`));
-      const meta=[];
-      if(n.vintageMatch===false) meta.push(`<span style="color:var(--brown-pale)">*different vintage</span>`);
-      if(n.url) meta.push(`<a href="${esc(n.url)}" target="_blank" rel="noopener" style="color:var(--brown-pale);text-decoration:none">Source ↗</a>`);
-      if(meta.length) card.appendChild(html(`<div style="display:flex;gap:12px;margin-top:5px;font-size:10px">${meta.join("")}</div>`));
-      criticsContent.appendChild(card);
-    });
-  }
-
-  async function loadCritics(showSpinner){
-    if(showSpinner) renderSearching();
-    try {
-      await fetchCriticsForWine(wine);
-      // In async mode the worker writes the result itself and the wines
-      // listener repaints this box; nothing lands here synchronously.
-      const fresh = wines[wine.id] || wine;
-      if(!criticsSearching.has(wine.id)) renderCriticCards(fresh.criticNotes, fresh.criticSource);
-    } catch(e){
-      criticsContent.innerHTML=`<div style="color:var(--brown-pale);font-size:12px;font-style:italic">Couldn't load notes — tap ↻ to retry.</div>`;
-    }
-  }
-
-  refreshBtn.onclick=()=>loadCritics(true);
-
-  // Repaint when a background search writes its results in.
-  openProfileRefresh=()=>{
-    const fresh = wines[wine.id];
-    if(!fresh) return;
-    if(fresh.criticNotes?.length || fresh.criticSource==="none"){
-      criticsSearching.delete(wine.id);
-      renderCriticCards(fresh.criticNotes, fresh.criticSource);
-    }
-  };
-
-  // Read the live record, not the copy captured when the card was drawn —
-  // a stale one has no notes on it and starts the search over again.
-  const stored = wines[wine.id] || wine;
-  if(stored.criticNotes?.length){
-    renderCriticCards(stored.criticNotes,stored.criticSource);
-  } else if(stored.criticSource==="none"){
-    renderCriticCards([],"none");
-  } else if(criticsSearching.has(wine.id)){
-    renderSearching();          // a search kicked off elsewhere is still running
-  } else if(criticsAttempted.has(wine.id)){
-    // Already tried this session and it failed or timed out. Retry on demand
-    // rather than burning another search on every open.
-    criticsContent.innerHTML=`<div style="color:var(--brown-pale);font-size:12px;font-style:italic">Couldn't load notes — tap ↻ to retry.</div>`;
-  } else {
-    loadCritics(true);
-  }
-  sheet.appendChild(criticsBox);
+  const criticsUI = buildCriticsBox(wine, () => wines[wine.id]);
+  openProfileRefresh = criticsUI.refresh;
+  sheet.appendChild(criticsUI.box);
 
   // Notes
   if(wine.notes){
