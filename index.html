@@ -2558,9 +2558,9 @@ function consumedDayLabel(ts) {
   const diff  = Math.round((today - day) / 86400000);
   if (diff === 0) return "Today";
   if (diff === 1) return "Yesterday";
-  const opts = { weekday:"short", month:"short", day:"numeric" };
-  if (d.getFullYear() !== today.getFullYear()) opts.year = "numeric";
-  return d.toLocaleDateString("en-US", opts);
+  // Always the year: this list is a drinking history you scroll back through,
+  // so "Sep 14" alone is ambiguous the moment it isn't this year.
+  return d.toLocaleDateString("en-US", { weekday:"short", month:"short", day:"numeric", year:"numeric" });
 }
 
 function renderConsumedTab() {
