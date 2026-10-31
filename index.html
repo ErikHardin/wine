@@ -1125,10 +1125,10 @@ async function initFirebase() {
     render();
     if (document.getElementById("settings-overlay")) renderSettingsBody();
   });
-  onValue(ref(db,"wines"),   snap=>{ wines   =snap.val()||{}; render(); if(document.getElementById("settings-overlay")) renderSettingsBody(); openProfileRefresh?.(); });
+  onValue(ref(db,"wines"),   snap=>{ wines   =snap.val()||{}; render(); if(document.getElementById("settings-overlay")) renderSettingsBody(); openProfileRefresh?.(); tripsSyncLoaded("wines"); });
   onValue(ref(db,"slots"),   snap=>{ slots   =snap.val()||{}; render(); if(document.getElementById("settings-overlay")) renderSettingsBody(); });
-  onValue(ref(db,"consumed"),snap=>{ consumed=snap.val()||{}; render(); openProfileRefresh?.(); });
-  onValue(ref(db,"trips"),   snap=>{ trips   =snap.val()||{}; render(); });
+  onValue(ref(db,"consumed"),snap=>{ consumed=snap.val()||{}; render(); openProfileRefresh?.(); tripsSyncLoaded("consumed"); });
+  onValue(ref(db,"trips"),   snap=>{ trips   =snap.val()||{}; render(); tripsSyncLoaded("trips"); });
   onValue(ref(db, "config/users"), snap => {
     allUsers = snap.val() || {};
     if (currentUser && Object.keys(allUsers).length > 0) {
@@ -1149,7 +1149,9 @@ async function saveWine(wine) {
   await set(ref(db,`wines/${wine.id}`), wine);
 }
 async function deleteWine(id) {
+  const src = wines[id]?.tripsSource;
   await remove(ref(db,`wines/${id}`));
+  if (src) set(ref(db, `config/tripsSync/dismissedWines/${src}`), true).catch(() => {});
 }
 async function updateWine(id, updates) {
   await update(ref(db,`wines/${id}`), updates);
@@ -1178,6 +1180,157 @@ async function saveConsumed(entry) {
 }
 async function saveTrip(trip) {
   await set(ref(db,`trips/${trip.id}`), trip);
+}
+
+// ── Sync from the Trips app ──────────────────────────────────────
+// Admins log bottles bought at an activity in the Trips app; it publishes them at
+// wineFeed: { <tripsTripId>: { name, currency, entries: { <activityKey>: { text,
+// date, dateLabel, note, red, white, rose, sparkling } } } }. Each activity × color
+// becomes one placeholder wine with a deterministic id, so two devices syncing at
+// once write the same records. Unfilled placeholders follow Trips exactly; once
+// filled in, a count change only raises a "Trips now says N" prompt on the wine.
+const TRIPS_FEED_URL = "https://hardin-trips-default-rtdb.firebaseio.com/wineFeed.json";
+const TRIPS_COLORS = [["red","Red"],["white","White"],["rose","Rosé"],["sparkling","Sparkling"]];
+const TRIPS_CURRENCY_SYMBOLS = { "$":"USD", "US$":"USD", "€":"EUR", "£":"GBP", "A$":"AUD", "C$":"CAD", "NZ$":"NZD", "HK$":"HKD", "S$":"SGD", "¥":"JPY", "CHF":"CHF" };
+const tripsSyncReady = { wines:false, consumed:false, trips:false };
+let tripsSyncRunning = false;
+let tripsSyncLastAt = 0;
+let tripsLastSyncedAt = 0;
+
+function tripsSyncLoaded(which) {
+  if (tripsSyncReady[which]) return;
+  tripsSyncReady[which] = true;
+  if (Object.values(tripsSyncReady).every(Boolean)) syncFromTripsApp();
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && Object.values(tripsSyncReady).every(Boolean)
+      && Date.now() - tripsSyncLastAt > 60000) syncFromTripsApp();
+});
+
+function tripsCurrency(c) {
+  const v = String(c || "").trim();
+  if (CURRENCIES.includes(v.toUpperCase())) return v.toUpperCase();
+  return TRIPS_CURRENCY_SYMBOLS[v] || "USD";
+}
+
+async function syncFromTripsApp() {
+  if (tripsSyncRunning || !currentUser) return;
+  tripsSyncRunning = true;
+  tripsSyncLastAt = Date.now();
+  try {
+    let feed;
+    try {
+      const res = await fetch(TRIPS_FEED_URL, { cache: "no-store" });
+      if (!res.ok) return;              // never act on an error response
+      feed = (await res.json()) || {};
+      if (typeof feed !== "object") return;
+    } catch (_) { return; }             // offline — try again next open
+
+    const dismissed = (await get(ref(db, "config/tripsSync"))).val() || {};
+    const dismissedWines = dismissed.dismissedWines || {};
+    const dismissedTrips = dismissed.dismissedTrips || {};
+    const bySource = {};
+    Object.values(wines).forEach(w => { if (w && w.tripsSource) bySource[w.tripsSource] = w; });
+    const consumedSources = new Set(Object.values(consumed).map(c => c && c.tripsSource).filter(Boolean));
+    const live = new Set();
+    const updates = {};
+    let added = 0, changed = 0, removed = 0, newTrips = 0;
+    const now = Date.now();
+
+    Object.entries(feed).forEach(([tid, t]) => {
+      if (!t || typeof t !== "object" || dismissedTrips[tid]) return;
+      const wineTripId = `t_trips_${tid}`;
+      const entries = t.entries || {};
+      if (!Object.keys(entries).length) return;
+      const trip = trips[wineTripId];
+      if (!trip) {
+        updates[`trips/${wineTripId}`] = { id: wineTripId, name: t.name || "Trip", capacity: 0,
+          currency: tripsCurrency(t.currency), createdAt: now, tripsTripId: tid };
+        newTrips++;
+      }
+      Object.entries(entries).forEach(([ek, e]) => {
+        if (!e || typeof e !== "object") return;
+        const info = { text: e.text || "", dateLabel: e.dateLabel || "", date: e.date || "", note: e.note || "" };
+        TRIPS_COLORS.forEach(([ck, color]) => {
+          const qty = parseInt(e[ck]) || 0;
+          if (qty <= 0) return;
+          const src = `${tid}_${ek}_${ck}`;
+          live.add(src);
+          const w = bySource[src];
+          if (!w) {
+            if (dismissedWines[src] || consumedSources.has(src)) return;
+            const id = `tp_${src}`;
+            updates[`wines/${id}`] = {
+              id, winery: "", wine: "Placeholder", color, qty, size: DEFAULT_BOTTLE_SIZE,
+              tripId: wineTripId, isPlaceholder: true,
+              vintage: "", varietal: "", region: "",
+              price: 0, priceLocal: null, priceCurrency: null,
+              score: null, drinkFrom: null, drinkTo: null, notes: "",
+              pairings: null, drinkWindow: null, servingTip: null,
+              pairingsAt: null, criticNotes: null, criticNotesAt: null,
+              createdAt: now, tripsSource: src, tripsQty: qty, tripsInfo: info,
+            };
+            added++;
+            return;
+          }
+          const infoChanged = JSON.stringify(w.tripsInfo || {}) !== JSON.stringify(info);
+          if (infoChanged) updates[`wines/${w.id}/tripsInfo`] = info;
+          if (w.isPlaceholder) {
+            if ((parseInt(w.tripsQty) || 0) !== qty || (parseInt(w.qty) || 0) !== qty) {
+              updates[`wines/${w.id}/qty`] = qty;
+              updates[`wines/${w.id}/tripsQty`] = qty;
+              changed++;
+            } else if (infoChanged) changed++;
+          } else {
+            const pending = (parseInt(w.tripsQty) || 0) !== qty ? qty : null;
+            if ((w.tripsPendingQty ?? null) !== pending) {
+              updates[`wines/${w.id}/tripsPendingQty`] = pending;
+              if (pending != null) changed++;
+            }
+          }
+        });
+      });
+    });
+
+    // Placeholders whose bottles were removed in Trips go away; filled-in wines stay
+    Object.values(wines).forEach(w => {
+      if (!w || !w.tripsSource || !w.isPlaceholder || live.has(w.tripsSource)) return;
+      const tid = String(w.tripId || "").replace(/^t_trips_/, "");
+      if (dismissedTrips[tid]) return;
+      if (findPlacement(w.id)) return;
+      updates[`wines/${w.id}`] = null;
+      removed++;
+    });
+
+    tripsLastSyncedAt = Date.now();
+    if (Object.keys(updates).length) {
+      await update(ref(db), updates);
+      const parts = [];
+      if (newTrips) parts.push(`${newTrips} trip${newTrips>1?"s":""} created`);
+      if (added) parts.push(`${added} placeholder${added>1?"s":""} added`);
+      if (changed) parts.push(`${changed} updated`);
+      if (removed) parts.push(`${removed} removed`);
+      if (parts.length) showTripsSyncToast(parts.join(" · "));
+    }
+    if (currentTab === "trip") render();
+  } catch (err) {
+    console.warn("Trips sync failed", err);
+  } finally {
+    tripsSyncRunning = false;
+  }
+}
+
+function showTripsSyncToast(msg) {
+  document.getElementById("trips-sync-toast")?.remove();
+  const t = html(`<div id="trips-sync-toast" role="status" style="position:fixed;left:16px;right:16px;top:calc(env(safe-area-inset-top, 0px) + 14px);z-index:9999;max-width:420px;margin:0 auto;padding:12px 14px;border-radius:12px;background:#2c1a0e;color:#f5ede0;box-shadow:0 8px 32px rgba(0,0,0,0.3);display:flex;gap:10px;align-items:center;font-size:14px;line-height:1.3">
+    <span>🧳</span><div style="flex:1">Synced from Trips<br><span style="color:#e0c9a0;font-size:13px">${esc(msg)}</span></div></div>`);
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 4500);
+}
+
+function tripsSourceLabel(info) {
+  if (!info) return "";
+  return [info.text, info.dateLabel].filter(Boolean).join(" · ");
 }
 async function saveLocation(loc) {
   await set(ref(db, `config/locations/${loc.id}`), loc);
@@ -1845,6 +1998,13 @@ function renderTripSubheader() {
   tripSel.onchange = e => { setActiveTrip(e.target.value); renderTab(); };
   tripRow.appendChild(tripSel);
   frag.appendChild(tripRow);
+  const linkedTrip = activeTrip ? trips[activeTrip] : null;
+  if (linkedTrip?.tripsTripId) {
+    const when = tripsLastSyncedAt
+      ? (Date.now() - tripsLastSyncedAt < 120000 ? "synced just now" : `synced ${new Date(tripsLastSyncedAt).toLocaleTimeString([], {hour:"numeric", minute:"2-digit"})}`)
+      : "syncs when the app opens";
+    frag.appendChild(html(`<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;margin:-6px 0 14px;border-radius:9px;background:rgba(80,144,176,0.12);color:var(--brown-mid);font-size:13px"><span>🔗</span><span>Linked to Trips · ${when}</span></div>`));
+  }
 
   // Capacity bar (only when a specific trip with capacity is selected)
   const consumedIds = new Set(Object.keys(consumed));
@@ -2068,6 +2228,7 @@ function renderTripCard(wine) {
             <div style="font-family:'Cormorant Garamond',serif;font-size:16px;font-weight:700;color:var(--brown-light);font-style:italic">Placeholder</div>
           </div>
           <div style="color:var(--brown-mid);font-size:13px">${wine.color} · ×${qty} bottle${qty>1?"s":""}</div>
+          ${wine.tripsInfo ? `<div style="color:var(--brown-mid);font-size:12px;margin-top:3px">🧳 ${esc(tripsSourceLabel(wine.tripsInfo))}</div>` : ""}
         </div>
         <div style="color:var(--brown-pale);font-size:12px;padding-left:8px;white-space:nowrap">Add details ›</div>
       </div>
@@ -4070,6 +4231,32 @@ function renderEditWineModal(wine) {
   titleRow.appendChild(html(`<div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:800;color:var(--ink)">${wine.isPlaceholder?"Complete Details":"Edit Wine"}</div>`));
   sheet.appendChild(titleRow);
 
+  if (wine.tripsInfo) {
+    const ti = wine.tripsInfo;
+    sheet.appendChild(html(`<div style="padding:12px 14px;border-radius:12px;background:rgba(80,144,176,0.12);margin-bottom:14px">
+      <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;font-weight:700;color:var(--brown-mid)">From Trips</div>
+      <div style="font-size:15px;color:var(--ink);margin-top:2px">${esc(tripsSourceLabel(ti))}</div>
+      ${ti.note ? `<div style="font-size:13px;color:var(--brown-mid);font-style:italic;margin-top:2px">“${esc(ti.note)}”</div>` : ""}
+    </div>`));
+  }
+  if (!wine.isPlaceholder && wine.tripsPendingQty != null) {
+    const pend = parseInt(wine.tripsPendingQty) || 0;
+    const box = html(`<div style="padding:12px 14px;border-radius:12px;border:1px solid rgba(184,134,11,0.45);background:rgba(240,208,128,0.18);margin-bottom:14px;display:flex;flex-direction:column;gap:10px">
+      <div style="font-size:14px;color:var(--ink);line-height:1.35">Trips now says <b>${pend} ${esc(wine.color||"")}</b> from this stop (was ${parseInt(wine.tripsQty)||0}).</div>
+      <div style="display:flex;gap:8px"></div></div>`);
+    const btnRow = box.lastElementChild;
+    const keep = html(`<button class="btn-sm" style="flex:1">Keep ${parseInt(wine.qty)||1}</button>`);
+    const use = html(`<button class="btn-primary" style="flex:1;margin:0;padding:8px">Use ${pend}</button>`);
+    keep.onclick = async () => { await updateWine(wine.id, { tripsQty: pend, tripsPendingQty: null }); box.remove(); };
+    use.onclick = async () => {
+      await updateWine(wine.id, { tripsQty: pend, tripsPendingQty: null, ...(pend > 0 ? { qty: pend } : {}) });
+      if (pend > 0) editWineForm.qty = String(pend);
+      renderEditWineModal({ ...wine, qty: pend > 0 ? pend : wine.qty, tripsQty: pend, tripsPendingQty: null });
+    };
+    btnRow.appendChild(keep); btnRow.appendChild(use);
+    sheet.appendChild(box);
+  }
+
   // Scan section (placeholder only) — supports optional back label
   if (wine.isPlaceholder) {
     if (editScanStep === "idle") {
@@ -4572,6 +4759,7 @@ function renderSettingsSectionTrips() {
           if (!confirm(`Delete trip "${trip.name}"? This will not remove wines already assigned to it.`)) return;
           deleteBtn.disabled = true;
           await remove(ref(db, `trips/${trip.id}`));
+          if (trip.tripsTripId) set(ref(db, `config/tripsSync/dismissedTrips/${trip.tripsTripId}`), true).catch(() => {});
           if (activeTrip === trip.id) setActiveTrip("");
         };
 
