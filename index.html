@@ -1149,9 +1149,11 @@ async function saveWine(wine) {
   await set(ref(db,`wines/${wine.id}`), wine);
 }
 async function deleteWine(id) {
-  const src = wines[id]?.tripsSource;
+  const w = wines[id];
+  const src = w?.tripsSource;
   await remove(ref(db,`wines/${id}`));
-  if (src) set(ref(db, `config/tripsSync/dismissedWines/${src}`), true).catch(() => {});
+  // Value is the bottle's group, so sync counts it as accounted for
+  if (src) set(ref(db, `config/tripsSync/dismissedWines/${src}`), w.tripsGroup || src).catch(() => {});
 }
 async function updateWine(id, updates) {
   await update(ref(db,`wines/${id}`), updates);
@@ -1187,8 +1189,10 @@ async function saveTrip(trip) {
 // wineFeed: { <tripsTripId>: { name, currency, entries: { <activityKey>: { text,
 // date, dateLabel, note, red, white, rose, sparkling } } } }. Each activity × color
 // becomes one placeholder wine with a deterministic id, so two devices syncing at
-// once write the same records. Unfilled placeholders follow Trips exactly; once
-// filled in, a count change only raises a "Trips now says N" prompt on the wine.
+// once write the same records. Every bottle is its own placeholder (qty 1) so each
+// can be scanned as a different wine. Per activity × color ("group"), bottles
+// already accounted for = placeholders + filled-in qty + drunk + deleted; Trips
+// counts above that add placeholders, counts below it remove unfilled ones.
 const TRIPS_FEED_URL = "https://hardin-trips-default-rtdb.firebaseio.com/wineFeed.json";
 const TRIPS_COLORS = [["red","Red"],["white","White"],["rose","Rosé"],["sparkling","Sparkling"]];
 const TRIPS_CURRENCY_SYMBOLS = { "$":"USD", "US$":"USD", "€":"EUR", "£":"GBP", "A$":"AUD", "C$":"CAD", "NZ$":"NZD", "HK$":"HKD", "S$":"SGD", "¥":"JPY", "CHF":"CHF" };
@@ -1229,13 +1233,20 @@ async function syncFromTripsApp() {
     const dismissed = (await get(ref(db, "config/tripsSync"))).val() || {};
     const dismissedWines = dismissed.dismissedWines || {};
     const dismissedTrips = dismissed.dismissedTrips || {};
-    const bySource = {};
-    Object.values(wines).forEach(w => { if (w && w.tripsSource) bySource[w.tripsSource] = w; });
-    const consumedSources = new Set(Object.values(consumed).map(c => c && c.tripsSource).filter(Boolean));
+    // Group = <tripsTripId>_<activityKey>_<color>. Wines from the first version of
+    // this sync have no tripsGroup; their tripsSource was the group.
+    const groupOf = w => w && (w.tripsGroup || w.tripsSource);
+    const groupWines = {};
+    Object.values(wines).forEach(w => { const g = w && w.tripsSource && groupOf(w); if (g) (groupWines[g] ||= []).push(w); });
+    const groupDrunk = {};
+    Object.values(consumed).forEach(c => { const g = c && c.tripsSource && groupOf(c); if (g) groupDrunk[g] = (groupDrunk[g] || 0) + 1; });
+    const groupDeleted = {};
+    Object.entries(dismissedWines).forEach(([k, v]) => { const g = typeof v === "string" ? v : k; groupDeleted[g] = (groupDeleted[g] || 0) + 1; });
     const live = new Set();
     const updates = {};
     let added = 0, changed = 0, removed = 0, newTrips = 0;
     const now = Date.now();
+    const removable = w => w.isPlaceholder && !findPlacement(w.id);
 
     Object.entries(feed).forEach(([tid, t]) => {
       if (!t || typeof t !== "object" || dismissedTrips[tid]) return;
@@ -1254,50 +1265,63 @@ async function syncFromTripsApp() {
         TRIPS_COLORS.forEach(([ck, color]) => {
           const qty = parseInt(e[ck]) || 0;
           if (qty <= 0) return;
-          const src = `${tid}_${ek}_${ck}`;
-          live.add(src);
-          const w = bySource[src];
-          if (!w) {
-            if (dismissedWines[src] || consumedSources.has(src)) return;
-            const id = `tp_${src}`;
-            updates[`wines/${id}`] = {
-              id, winery: "", wine: "Placeholder", color, qty, size: DEFAULT_BOTTLE_SIZE,
-              tripId: wineTripId, isPlaceholder: true,
-              vintage: "", varietal: "", region: "",
-              price: 0, priceLocal: null, priceCurrency: null,
-              score: null, drinkFrom: null, drinkTo: null, notes: "",
-              pairings: null, drinkWindow: null, servingTip: null,
-              pairingsAt: null, criticNotes: null, criticNotesAt: null,
-              createdAt: now, tripsSource: src, tripsQty: qty, tripsInfo: info,
-            };
-            added++;
-            return;
-          }
-          const infoChanged = JSON.stringify(w.tripsInfo || {}) !== JSON.stringify(info);
-          if (infoChanged) updates[`wines/${w.id}/tripsInfo`] = info;
-          if (w.isPlaceholder) {
-            if ((parseInt(w.tripsQty) || 0) !== qty || (parseInt(w.qty) || 0) !== qty) {
-              updates[`wines/${w.id}/qty`] = qty;
-              updates[`wines/${w.id}/tripsQty`] = qty;
-              changed++;
-            } else if (infoChanged) changed++;
-          } else {
-            const pending = (parseInt(w.tripsQty) || 0) !== qty ? qty : null;
-            if ((w.tripsPendingQty ?? null) !== pending) {
-              updates[`wines/${w.id}/tripsPendingQty`] = pending;
-              if (pending != null) changed++;
+          const g = `${tid}_${ek}_${ck}`;
+          live.add(g);
+          const members = groupWines[g] || [];
+          const usedIds = new Set(members.map(w => w.id));
+          let placeholders = 0, filled = 0, groupChanged = false;
+          members.forEach(w => {
+            const base = `wines/${w.id}`;
+            if (JSON.stringify(w.tripsInfo || {}) !== JSON.stringify(info)) { updates[`${base}/tripsInfo`] = info; groupChanged = true; }
+            if (w.tripsGroup !== g) updates[`${base}/tripsGroup`] = g;
+            if (w.tripsPendingQty != null) updates[`${base}/tripsPendingQty`] = null;
+            if (w.isPlaceholder) {
+              // A multi-bottle placeholder from the first version becomes one bottle
+              if ((parseInt(w.qty) || 1) !== 1) { updates[`${base}/qty`] = 1; groupChanged = true; }
+              placeholders++;
+            } else {
+              filled += parseInt(w.qty) || 1;
             }
+          });
+          const have = placeholders + filled + (groupDrunk[g] || 0) + (groupDeleted[g] || 0);
+          if (have < qty) {
+            let n = 1;
+            for (let k = have; k < qty; k++) {
+              while (usedIds.has(`tp_${g}_${n}`)) n++;
+              const id = `tp_${g}_${n}`;
+              usedIds.add(id);
+              updates[`wines/${id}`] = {
+                id, winery: "", wine: "Placeholder", color, qty: 1, size: DEFAULT_BOTTLE_SIZE,
+                tripId: wineTripId, isPlaceholder: true,
+                vintage: "", varietal: "", region: "",
+                price: 0, priceLocal: null, priceCurrency: null,
+                score: null, drinkFrom: null, drinkTo: null, notes: "",
+                pairings: null, drinkWindow: null, servingTip: null,
+                pairingsAt: null, criticNotes: null, criticNotesAt: null,
+                createdAt: now, tripsSource: `${g}_${n}`, tripsGroup: g, tripsInfo: info,
+              };
+              added++;
+            }
+          } else if (have > qty) {
+            // Fewer bottles in Trips: drop unfilled placeholders, newest first
+            const extra = members.filter(removable).sort((a, b) => String(b.id).localeCompare(String(a.id), undefined, { numeric: true }));
+            extra.slice(0, have - qty).forEach(w => {
+              // A multi-path update can't both delete a wine and set its fields
+              Object.keys(updates).forEach(k => { if (k.startsWith(`wines/${w.id}/`)) delete updates[k]; });
+              updates[`wines/${w.id}`] = null;
+              removed++;
+            });
           }
+          if (groupChanged && have <= qty) changed++;
         });
       });
     });
 
     // Placeholders whose bottles were removed in Trips go away; filled-in wines stay
     Object.values(wines).forEach(w => {
-      if (!w || !w.tripsSource || !w.isPlaceholder || live.has(w.tripsSource)) return;
+      if (!w || !w.tripsSource || !removable(w) || live.has(groupOf(w))) return;
       const tid = String(w.tripId || "").replace(/^t_trips_/, "");
       if (dismissedTrips[tid]) return;
-      if (findPlacement(w.id)) return;
       updates[`wines/${w.id}`] = null;
       removed++;
     });
@@ -4238,23 +4262,6 @@ function renderEditWineModal(wine) {
       <div style="font-size:15px;color:var(--ink);margin-top:2px">${esc(tripsSourceLabel(ti))}</div>
       ${ti.note ? `<div style="font-size:13px;color:var(--brown-mid);font-style:italic;margin-top:2px">“${esc(ti.note)}”</div>` : ""}
     </div>`));
-  }
-  if (!wine.isPlaceholder && wine.tripsPendingQty != null) {
-    const pend = parseInt(wine.tripsPendingQty) || 0;
-    const box = html(`<div style="padding:12px 14px;border-radius:12px;border:1px solid rgba(184,134,11,0.45);background:rgba(240,208,128,0.18);margin-bottom:14px;display:flex;flex-direction:column;gap:10px">
-      <div style="font-size:14px;color:var(--ink);line-height:1.35">Trips now says <b>${pend} ${esc(wine.color||"")}</b> from this stop (was ${parseInt(wine.tripsQty)||0}).</div>
-      <div style="display:flex;gap:8px"></div></div>`);
-    const btnRow = box.lastElementChild;
-    const keep = html(`<button class="btn-sm" style="flex:1">Keep ${parseInt(wine.qty)||1}</button>`);
-    const use = html(`<button class="btn-primary" style="flex:1;margin:0;padding:8px">Use ${pend}</button>`);
-    keep.onclick = async () => { await updateWine(wine.id, { tripsQty: pend, tripsPendingQty: null }); box.remove(); };
-    use.onclick = async () => {
-      await updateWine(wine.id, { tripsQty: pend, tripsPendingQty: null, ...(pend > 0 ? { qty: pend } : {}) });
-      if (pend > 0) editWineForm.qty = String(pend);
-      renderEditWineModal({ ...wine, qty: pend > 0 ? pend : wine.qty, tripsQty: pend, tripsPendingQty: null });
-    };
-    btnRow.appendChild(keep); btnRow.appendChild(use);
-    sheet.appendChild(box);
   }
 
   // Scan section (placeholder only) — supports optional back label
